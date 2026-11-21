@@ -463,7 +463,10 @@ function liveRead(T, S, names) {
 // M: samples {t (s), a (m/s^2 of user acceleration, gravity removed), g (deg/s of rotation)}.
 // The two "moving" limits are first guesses, not measured yet: a phone on a table reads near 0, a hand holding
 // still a few tenths, walking well over 1 m/s^2. The per-second log carries the real values for tuning.
-var MOTION = { aMoving: 0.6, gMoving: 30, recent: 2, rhythmMin: 0.15, rhythmBand: 5 };
+// Checked on Judah's first recording (November 21): lying still read shake 0.09 to 0.12 and turn 1; picked up
+// and moving read 0.8 to 3.3 and 20 to 90. The motion-rhythm check needs real motion (shake 0.25 or more): on the
+// still phone its "rhythm" was sensor noise and it threw out a clear 73 bpm reading.
+var MOTION = { aMoving: 0.6, gMoving: 30, recent: 2, rhythmMin: 0.15, rhythmBand: 5, rhythmShake: 0.25 };
 function motionSummary(M, now) {
   var out = { have: M.length > 0, a: 0, g: 0, moving: false, rhythm: null, rhythmShare: 0 };
   if (!M.length) return out;
@@ -553,7 +556,7 @@ function trackStep(tk, r, m, now) {
   var bpm = r.bpm, level = r.level;
   var steady = r.hd <= LIVE.hdMax && r.td <= LIVE.tdMax;
   // A reading sitting on the motion's own rhythm is the motion, not the heart.
-  if (m && m.rhythm && m.rhythmShare >= MOTION.rhythmMin && m.a > 0.05 && Math.abs(bpm - m.rhythm) <= MOTION.rhythmBand)
+  if (m && m.rhythm && m.rhythmShare >= MOTION.rhythmMin && m.a >= MOTION.rhythmShake && Math.abs(bpm - m.rhythm) <= MOTION.rhythmBand)
     return hold('matches motion rhythm') || { state: 'none', bpm: null, why: 'matches motion rhythm' };
   if (!active) {
     tk.rate = null; tk.recent = [];
