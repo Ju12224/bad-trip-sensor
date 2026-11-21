@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bad Trip: flash test</title>
+<title>Bad Trip: live pulse</title>
 <style>
 :root {
   --bg: #150b0c; --surface: #211314; --line: #3b2325; --text: #f4e9e4; --muted: #ad968f;
@@ -19,196 +19,507 @@ body {
 }
 main { max-width: 460px; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 18px; }
 h1 { font-size: 26px; line-height: 1.15; margin: 0; }
+h2 { font-size: 17px; margin: 0; }
 p { margin: 0; }
 .muted { color: var(--muted); font-size: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-.top { display: flex; align-items: center; gap: 14px; }
-video { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: #000; border: 1px solid var(--line); flex: none; }
-.light b { display: block; font-size: 30px; line-height: 1.1; }
-.light span { color: var(--muted); font-size: 13px; }
-.good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.bpm { display: flex; align-items: baseline; gap: 8px; }
+.bpm b { font-size: 84px; line-height: 0.9; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ember); }
+.bpm b.dim { color: var(--muted); opacity: 0.55; font-size: 48px; font-weight: 500; }
+.bpm span { color: var(--muted); font-size: 14px; }
+.pill { font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; color: var(--muted); }
+.good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); } .run { color: var(--ember); }
+canvas { display: block; width: 100%; height: 110px; border-radius: 10px; background: #1a0e0f; }
+.axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--ember); transition: width 0.3s; }
+.msg { font-size: 15px; min-height: 1.45em; }
+.top2 { display: flex; align-items: center; gap: 12px; }
+video { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #000; border: 1px solid var(--line); flex: none; }
 dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; font-variant-numeric: tabular-nums; }
 dt { color: var(--muted); }
 dd { margin: 0; overflow-wrap: anywhere; }
-.rgb { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.rgb div { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-.rgb span { color: var(--muted); font-size: 12px; display: block; }
-.rgb b { font-size: 24px; font-variant-numeric: tabular-nums; }
-.swatch { height: 14px; border-radius: 7px; border: 1px solid var(--line); background: #000; }
+details > summary { color: var(--muted); font-size: 14px; cursor: pointer; }
+details[open] > summary { margin-bottom: 12px; }
 .btns { display: flex; flex-direction: column; gap: 10px; }
 .row { display: flex; gap: 10px; }
-button {
-  font: 600 16px/1 inherit; font-family: inherit; padding: 14px 16px; border-radius: 12px; width: 100%;
-  border: 1px solid var(--line); color: var(--text); background: transparent; cursor: pointer;
+button, select, input {
+  font: inherit; padding: 13px 14px; border-radius: 12px; width: 100%;
+  border: 1px solid var(--line); color: var(--text); background: transparent;
 }
+button { font-weight: 600; cursor: pointer; }
+select, input { background: var(--surface); }
 button.primary { background: var(--ember); border-color: var(--ember); color: #1b0906; }
 button:disabled { opacity: 0.4; }
-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); -webkit-user-select: all; user-select: all; }
+label { color: var(--muted); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
 ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Flash test</h1>
-    <p class="muted">Step 0. Checks whether Safari can switch on this phone's flash and what the back camera sees.</p>
+    <h1>Live pulse</h1>
+    <p class="muted">Step 1. Reads your pulse through a fingertip over the back lens and the flash, from the last 10 seconds, once a second.</p>
   </header>
 
   <div class="card">
     <div class="top">
-      <video id="vid" muted playsinline autoplay></video>
-      <div class="light">
-        <b id="state">Not started</b>
-        <span id="stateNote">Tap Start and allow the camera.</span>
-      </div>
+      <div class="bpm"><b id="bpm" class="dim">--</b><span>beats per minute</span></div>
+      <span class="pill" id="pill">Not started</span>
     </div>
-
-    <div class="rgb">
-      <div><span>Red</span><b id="r">--</b></div>
-      <div><span>Green</span><b id="g">--</b></div>
-      <div><span>Blue</span><b id="b">--</b></div>
+    <div>
+      <canvas id="trace" width="800" height="220" role="img" aria-label="Pulse trace"></canvas>
+      <div class="axis"><span id="ax0"></span><span id="axNote">Your pulse trace appears here</span><span id="ax1"></span></div>
     </div>
-    <div class="swatch" id="swatch" aria-hidden="true"></div>
-
+    <div class="bar" aria-hidden="true"><i id="prog"></i></div>
+    <p class="msg" id="msg" aria-live="polite">Tap Start, allow the camera, then rest a fingertip lightly over the lens and the light.</p>
     <dl>
-      <dt>Frame rate</dt><dd id="fps">--</dd>
-      <dt>Picture</dt><dd id="look">--</dd>
-      <dt>Flash request</dt><dd id="req">--</dd>
-      <dt>Safari reports flash</dt><dd id="set">--</dd>
-      <dt>Camera lists a flash</dt><dd id="cap">--</dd>
-      <dt>Camera</dt><dd id="cam">--</dd>
-      <dt>Video size</dt><dd id="size">--</dd>
+      <dt>Signal strength</dt><dd id="sQ">--</dd>
+      <dt>Beats in the window</dt><dd id="sBeats">--</dd>
+      <dt>Readings so far</dt><dd id="sHist">--</dd>
     </dl>
   </div>
 
   <div class="btns">
     <button class="primary" id="start" type="button">Start</button>
-    <div class="row">
-      <button id="on" type="button" disabled>Flash on</button>
-      <button id="off" type="button" disabled>Flash off</button>
-    </div>
-    <button class="primary" id="send" type="button" disabled>Send results to Claude</button>
-    <button id="copy" type="button" disabled>Copy results</button>
-    <label class="muted" for="saw">Did the light on the back come on?</label>
-    <select id="saw" style="font:inherit;padding:12px;border-radius:12px;background:var(--surface);color:var(--text);border:1px solid var(--line)">
-      <option value="not answered">Pick one</option>
-      <option value="yes">Yes, the light came on</option>
-      <option value="no">No, the light stayed off</option>
-      <option value="flickered">It flickered or went off again</option>
-    </select>
   </div>
 
   <div class="card">
+    <h2>Check it against your neck</h2>
     <ol>
-      <li>Tap Start and allow the camera.</li>
-      <li>Turn the phone over. Is the light next to the back lenses lit?</li>
-      <li>Rest a fingertip lightly over the lens and the light. Red should climb well above 150 while green and blue fall near 0.</li>
-      <li>Pick whether you saw the light, then tap Send results to Claude. GitHub opens a form with the results filled in: tap Submit. The results post as a public issue on your bad-trip-sensor repo, where Claude reads them.</li>
+      <li>With the number steady, keep your fingertip on the lens. With your other hand, count the pulse at your neck for 30 seconds while watching the clock, and double it.</li>
+      <li>Type that number here, then send the results.</li>
     </ol>
-    <p class="muted">Pass: the light is lit and the picture is solid red under your fingertip. Your eyes and the red level decide it. The two "flash" lines above are only what Safari claims.</p>
+    <label>Neck count, beats per minute
+      <input id="neck" type="number" inputmode="numeric" min="30" max="220" placeholder="for example 84">
+    </label>
+    <label>Room light
+      <select id="room">
+        <option value="not given">Pick one</option>
+        <option value="lit room">Lit room</option>
+        <option value="dark room">Dark room</option>
+      </select>
+    </label>
+    <button class="primary" id="send" type="button" disabled>Send results to Claude</button>
+    <p class="muted">Sending opens a GitHub form with the readings filled in. Tap Submit, and they post as a public issue on your bad-trip-sensor repo, where Claude reads them. Pass: the number updates each second, sits within 5 of your neck count, and holds in a dark room.</p>
   </div>
 
-  <pre id="report"></pre>
+  <div class="card">
+    <details id="diag">
+      <summary>Camera and flash details</summary>
+      <div class="top2" style="margin-bottom:12px">
+        <video id="vid" muted playsinline autoplay></video>
+        <div><b id="state">Not started</b><br><span class="muted" id="stateNote"></span></div>
+      </div>
+      <dl>
+        <dt>Red, green, blue</dt><dd id="rgb">--</dd>
+        <dt>Red maxed out</dt><dd id="sat">--</dd>
+        <dt>Frame rate</dt><dd id="fps">--</dd>
+        <dt>Flash request</dt><dd id="req">--</dd>
+        <dt>Browser reports flash</dt><dd id="set">--</dd>
+        <dt>Camera</dt><dd id="cam">--</dd>
+        <dt>Video size</dt><dd id="size">--</dd>
+      </dl>
+      <div class="row" style="margin-top:12px">
+        <button id="on" type="button" disabled>Flash on</button>
+        <button id="off" type="button" disabled>Flash off</button>
+      </div>
+    </details>
+  </div>
 </main>
+
+<script id="dsp">
+// ---- Signal processing: pure functions, no DOM. Copied unchanged from the Fingertip Pulse Test page. ----
+var FS = 30;          // resample rate, Hz
+var Q_CLEAR = 0.50;   // share of in-band power sitting on the pulse and its first overtone
+var Q_WEAK = 0.33;
+var C_CLEAR = 8, C_WEAK = 4;  // how far the peak must stand above its neighbors
+// Shorter stretches of the clip must land close (in bpm) to the whole reading. Short stretches measure
+// rate more coarsely, so the allowed gap widens as they get shorter: halves 2 bpm or 16/seconds, thirds 4 or 20/seconds.
+
+function movAvg(x, w) {
+  var n = x.length, out = new Float64Array(n), h = Math.floor(w / 2), sum = 0, lo = 0, hi = -1;
+  for (var i = 0; i < n; i++) {
+    var a = Math.max(0, i - h), b = Math.min(n - 1, i + h);
+    while (hi < b) { hi++; sum += x[hi]; }
+    while (lo < a) { sum -= x[lo]; lo++; }
+    out[i] = sum / (hi - lo + 1);
+  }
+  return out;
+}
+function median(a) { var s = Array.prototype.slice.call(a).sort(function (x, y) { return x - y; }); return s.length ? s[Math.floor(s.length / 2)] : 0; }
+function std(x) {
+  var m = 0, v = 0, i;
+  for (i = 0; i < x.length; i++) m += x[i];
+  m /= x.length || 1;
+  for (i = 0; i < x.length; i++) v += (x[i] - m) * (x[i] - m);
+  return Math.sqrt(v / (x.length || 1));
+}
+
+function resample(T, V, t0, t1) {
+  var n = Math.floor((t1 - t0) * FS), out = new Float64Array(Math.max(0, n)), j = 0, last = T.length - 1;
+  for (var i = 0; i < n; i++) {
+    var t = t0 + i / FS;
+    while (j < last - 1 && T[j + 1] < t) j++;
+    var k = Math.min(j + 1, last), span = T[k] - T[j];
+    var f = span > 0 ? Math.min(1, Math.max(0, (t - T[j]) / span)) : 0;
+    out[i] = V[j] + (V[k] - V[j]) * f;
+  }
+  return out;
+}
+
+function movMedian(x, w) {
+  var n = x.length, out = new Float64Array(n), h = Math.floor(w / 2), buf = [];
+  for (var i = 0; i < n; i++) {
+    var a = Math.max(0, i - h), b = Math.min(n - 1, i + h);
+    buf.length = 0;
+    for (var k = a; k <= b; k++) buf.push(x[k]);
+    buf.sort(function (p, q) { return p - q; });
+    out[i] = buf[buf.length >> 1];
+  }
+  return out;
+}
+
+// Remove slow drift and steps, and blank out jolts from finger shifts so one bump cannot drown the pulse.
+function detrend(x) {
+  var n = x.length, base = movMedian(x, Math.round(2 * FS) | 1), d = new Float64Array(n), i, k;
+  for (i = 0; i < n; i++) d[i] = x[i] - base[i];
+  var lim = 3.5 * 1.4826 * median(Array.prototype.map.call(d, Math.abs));
+  if (lim > 0) {
+    var gate = new Uint8Array(n);
+    for (i = 0; i < n; i++) if (Math.abs(d[i]) > lim) for (k = Math.max(0, i - 2); k <= Math.min(n - 1, i + 2); k++) gate[k] = 1;
+    for (i = 0; i < n; i++) if (gate[i]) d[i] = 0;
+  }
+  var slow = movAvg(d, Math.round(1.5 * FS) | 1);
+  for (i = 0; i < n; i++) d[i] -= slow[i];
+  return d;
+}
+
+// Power at 30..420 beats per minute in 1 bpm steps (Hann window, Goertzel).
+function spectrum(x) {
+  var n = x.length, w = new Float64Array(n), P = new Float64Array(391), i, k;
+  for (i = 0; i < n; i++) w[i] = x[i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)));
+  for (k = 0; k < 391; k++) {
+    var c = 2 * Math.cos(2 * Math.PI * ((30 + k) / 60) / FS), s1 = 0, s2 = 0, s;
+    for (i = 0; i < n; i++) { s = w[i] + c * s1 - s2; s2 = s1; s1 = s; }
+    P[k] = s1 * s1 + s2 * s2 - c * s1 * s2;
+  }
+  return P;
+}
+
+// Strongest rhythm between 40 and 200 bpm, and how much of the signal it explains.
+function pitch(x) {
+  var n = x.length;
+  if (n < 3.5 * FS) return null;
+  var P = spectrum(x), kp = 10, k, tot = 0;
+  for (k = 10; k <= 170; k++) if (P[k] > P[kp]) kp = k;
+  for (k = 0; k < 391; k++) tot += P[k];
+  if (!(tot > 0)) return null;
+  var a = P[kp - 1], b = P[kp], c = P[kp + 1], den = a - 2 * b + c;
+  var bpm = 30 + kp + (den !== 0 ? 0.5 * (a - c) / den : 0);
+  var hw = Math.max(6, Math.round(72 * FS / n)), sig = 0, k2 = Math.round(2 * bpm - 30);
+  for (k = Math.max(0, kp - hw); k <= Math.min(390, kp + hw); k++) sig += P[k];
+  for (k = Math.max(kp + hw + 1, k2 - hw); k <= Math.min(390, k2 + hw); k++) sig += P[k];
+  // Sharpness: how far the peak stands above its neighbors. A pulse is a narrow spike; drifting noise is a broad hump.
+  var cen = 0, nc = 0, ring = 0, nr = 0;
+  for (k = Math.max(0, kp - 4 * hw); k <= Math.min(390, kp + 4 * hw); k++) {
+    if (Math.abs(k - kp) <= hw) { cen += P[k]; nc++; } else { ring += P[k]; nr++; }
+  }
+  return { bpm: bpm, q: sig / tot, c: nr && ring > 0 ? (cen / nc) / (ring / nr) : 99 };
+}
+
+// Similarity of the signal to itself shifted by `lag` samples (-1..1).
+function acfAt(x, lag) {
+  var s = 0, e1 = 0, e2 = 0;
+  for (var i = 0; i + lag < x.length; i++) { s += x[i] * x[i + lag]; e1 += x[i] * x[i]; e2 += x[i + lag] * x[i + lag]; }
+  return e1 > 0 && e2 > 0 ? s / Math.sqrt(e1 * e2) : 0;
+}
+
+// Longest stretch of the clip without a big brightness jump (finger lifted, shifted, or reaching for the stop button).
+function steadySpan(T, S) {
+  var tA = T[0], tB = T[T.length - 1], L = resample(T, S[0], tA, tB), g = resample(T, S[1], tA, tB), n = L.length, i, k;
+  for (i = 0; i < n; i++) L[i] += g[i];
+  var base = movMedian(L, Math.round(2 * FS) | 1), dev = new Float64Array(n);
+  for (i = 0; i < n; i++) dev[i] = Math.abs(L[i] - base[i]);
+  var lim = Math.max(4, 8 * 1.4826 * median(dev)), brk = new Uint8Array(n), w = Math.round(FS / 2), cnt = 0;
+  for (i = 0; i < n; i++) {
+    if (dev[i] > lim) cnt++;
+    if (i >= w && dev[i - w] > lim) cnt--;
+    if (cnt >= 4) for (k = Math.max(0, i - 2 * w); k <= Math.min(n - 1, i + w); k++) brk[k] = 1;
+  }
+  var best = [0, 0], start = 0;
+  for (i = 0; i <= n; i++) {
+    if (i === n || brk[i]) { if (i - start > best[1] - best[0]) best = [start, i]; start = i + 1; }
+  }
+  return { a: tA + best[0] / FS, b: tA + best[1] / FS };
+}
+
+function countBeats(signal, period) {
+  var minDist = 0.6 * period, floor = 0.2 * std(signal), kept = [];
+  for (var i = 1; i < signal.length - 1; i++) {
+    if (signal[i] > floor && signal[i] > signal[i - 1] && signal[i] >= signal[i + 1]) {
+      var last = kept[kept.length - 1];
+      if (last !== undefined && i - last < minDist) { if (signal[i] > signal[last]) kept[kept.length - 1] = i; }
+      else kept.push(i);
+    }
+  }
+  return kept;
+}
+
+// T: frame times in seconds. S: one series per source (whole frame and 3x3 cells, per color). names: label per series.
+function analyze(T, S, names) {
+  if (T.length < 2) return { error: 'short' };
+  var tA = T[0], tB = T[T.length - 1], dur = tB - tA;
+  if (dur < 8) return { error: 'short', dur: dur };
+  var mr = median(S[0]), mg = median(S[1]), mb = median(S[2]);
+  var out = { dur: dur, fps: (T.length - 1) / dur, med: [mr, mg, mb],
+    dark: (mr + mg + mb) / 3 < 10, covered: mr > 1.4 * mg && mr > 1.4 * mb, q: 0, level: 'none', cands: [] };
+  // Look only at the steady part of the clip, and skip the first moments while the camera settles.
+  var span = steadySpan(T, S), cands = [], j, i;
+  var sA = Math.max(span.a, tA + 1.5), sB = span.b;
+  out.span = [sA - tA, sB - tA];
+  out.redness = mg > 0 ? mr / mg : 99;
+  if (sB - sA < 8) { out.error = tB - tA < 11 ? 'short' : 'moved'; return out; }
+  for (j = 0; j < S.length; j++) {
+    var med = median(S[j]);
+    if (med > 250 || med < 2) continue;            // maxed out or black: no pulse can show
+    var d = detrend(resample(T, S[j], sA, sB)), amp = std(d);
+    if (amp < 0.02) continue;
+    var p = pitch(d);
+    if (p) cands.push({ j: j, name: names[j], med: med, amp: amp, bpm: p.bpm, q: p.q, d: d });
+  }
+  cands.sort(function (a, b) { return b.q - a.q; });
+  out.cands = cands.map(function (c) { return { name: c.name, med: +c.med.toFixed(1), amp: +c.amp.toFixed(3), bpm: +c.bpm.toFixed(1), q: +c.q.toFixed(3) }; });
+  if (!cands.length) return out;
+  // Average the sources that agree with the strongest one.
+  var best = cands[0], group = cands.filter(function (c) { return Math.abs(c.bpm - best.bpm) <= 4 && c.q >= 0.6 * best.q; }).slice(0, 8);
+  var n = best.d.length, comb = new Float64Array(n);
+  group.forEach(function (c) { for (i = 0; i < n; i++) comb[i] += c.d[i] / c.amp / group.length; });
+  var fin = pitch(comb);
+  if (!fin) return out;
+  var h1 = pitch(comb.subarray(0, n >> 1)), h2 = pitch(comb.subarray(n >> 1));
+  // Halving a reading when every other beat looks different was tried and dropped: on noisy clips it halved
+  // real readings about 2% of the time. Each stretch is held to the same rate as the whole steady part.
+  var raw = fin.bpm, oct = 1;
+  var off = function (p) { return !p ? 99 : oct === 1 ? Math.abs(p.bpm - raw) : Math.min(Math.abs(p.bpm - raw), Math.abs(2 * p.bpm - raw)); };
+  var norm = function (p) { return (oct !== 1 && Math.abs(2 * p.bpm - raw) < Math.abs(p.bpm - raw) ? 2 * p.bpm : p.bpm) * oct; };
+  // Three stretches at the start, middle, and end: a third of the steady part each, but never under 4 seconds
+  // (on a short clip they overlap, since under 3.5 seconds there is too little to measure a rate from).
+  var third = Math.min(n, Math.max(Math.floor(n / 3), 4 * FS)), td = 0;
+  for (var q3 = 0; q3 < 3; q3++) { var s3 = Math.round(q3 * (n - third) / 2); td = Math.max(td, off(pitch(comb.subarray(s3, s3 + third)))); }
+  var hdClear = Math.max(2, 16 / (n / 2 / FS)), tdClear = Math.max(4, 20 / (third / FS));
+  out.td = td; out.oct = oct;
+  var hd = Math.max(off(h1), off(h2));
+  out.q = fin.q; out.c = fin.c; out.hd = hd; out.agree = hd <= hdClear + 0.5 && td <= tdClear + 1; out.src = group.map(function (c) { return c.name; });
+  // Under 12 steady seconds there is less to cross-check, so a clear verdict needs a stronger signal.
+  var qClear = n < 12 * FS ? 0.6 : Q_CLEAR;
+  out.level = fin.q >= qClear && fin.c >= C_CLEAR && hd <= hdClear && td <= tdClear ? 'clear'
+    : fin.q >= Q_WEAK && fin.c >= C_WEAK && out.agree ? 'weak' : 'none';
+  out.bpm = raw * oct; out.t0 = sA - tA; out.comb = comb;
+  // Trace for drawing: keep only wiggles near the pulse rate.
+  var period = FS * 60 / out.bpm;
+  var lo = movAvg(comb, Math.max(3, Math.round(period / 3) | 1)), base = movAvg(comb, Math.round(1.5 * period) | 1);
+  out.signal = new Float64Array(n);
+  for (i = 0; i < n; i++) out.signal[i] = lo[i] - base[i];
+  out.beats = countBeats(out.signal, period);
+  // Shortest stretch of video that gives the right number from almost anywhere in the clip.
+  for (var L = 4; L <= Math.min(12, sB - sA); L++) {
+    var hit = 0, tot = 0, w = Math.round(L * FS);
+    for (var s0 = 0; s0 + w <= n; s0 += FS) {
+      var e = pitch(comb.subarray(s0, s0 + w));
+      tot++;
+      if (off(e) <= 5) hit++;
+    }
+    if (tot && hit / tot >= 0.8) { out.lock = L; break; }
+  }
+  var rl = Infinity, rh = -Infinity;
+  for (var s8 = 0; s8 + 8 * FS <= n; s8 += 2 * FS) {
+    var e8 = pitch(comb.subarray(s8, s8 + 8 * FS));
+    if (e8) { rl = Math.min(rl, norm(e8)); rh = Math.max(rh, norm(e8)); }
+  }
+  if (rl <= rh) { out.lo = rl; out.hi = rh; }
+  return out;
+}
+
+// ---- Live use (new for Step 1) ----
+// The window handed to analyze() is 11.5 s: analyze() always skips its first 1.5 s, so it reads the last
+// 10 s and needs at least 8 steady seconds of them. That is the spec's sliding 8 to 10 second window.
+var WIN = 11.5;
+function windowFrom(T, S, now) {
+  var from = 0;
+  while (from < T.length && T[from] < now - WIN) from++;
+  return { T: T.slice(from), S: S.map(function (s) { return s.slice(from); }) };
+}
+function liveRead(T, S, names) {
+  if (!T.length) return { error: 'short', dur: 0 };
+  var w = windowFrom(T, S, T[T.length - 1]);
+  return analyze(w.T, w.S, names);
+}
+if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN };
+</script>
 
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var video = $('vid');
+  var video = $('vid'), canvas = $('trace'), ctx = canvas.getContext('2d');
   var G = 32, grab = document.createElement('canvas'); grab.width = G; grab.height = G;
   var gctx = grab.getContext('2d', { willReadFrequently: true });
+  var css = getComputedStyle(document.documentElement);
+  var C = { ember: css.getPropertyValue('--ember').trim(), line: css.getPropertyValue('--line').trim(), text: css.getPropertyValue('--text').trim() };
 
-  var stream = null, track = null, running = false;
+  // 30 series: whole-frame red, green, blue, then each color over the 3 x 3 grid of cells.
+  var CELLS = ['top left', 'top', 'top right', 'left', 'center', 'right', 'bottom left', 'bottom', 'bottom right'];
+  var NAMES = ['red, whole frame', 'green, whole frame', 'blue, whole frame'];
+  ['red', 'green', 'blue'].forEach(function (c) { CELLS.forEach(function (p) { NAMES.push(c + ', ' + p); }); });
+  var cellOf = new Uint8Array(G * G), cellN = new Float64Array(9);
+  for (var y = 0; y < G; y++) for (var x = 0; x < G; x++) { var ci = Math.min(2, Math.floor(y * 3 / G)) * 3 + Math.min(2, Math.floor(x * 3 / G)); cellOf[y * G + x] = ci; cellN[ci]++; }
+
+  var KEEP = 30;   // seconds of frames kept in memory
+  var T = [], S = [], t0 = null, lastT = -1;
+  for (var k = 0; k < 30; k++) S.push([]);
+  var stream = null, track = null, running = false, clockSrc = '';
   var hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-  var frames = 0, fpsStart = 0, fpsNow = 0, fpsMin = Infinity, fpsMax = 0;
-  var rgb = [0, 0, 0], sat = 0, lastSample = 0;
+  var frames = 0, fpsStart = 0, fpsNow = 0, rgb = [0, 0, 0], sat = 0;
   var log = { req: 'not sent', reqDetail: '', wanted: null, muted: false, readErr: '', events: [] };
+  var hist = [];   // one entry per second: [seconds since start, bpm or null, level, strength, sharpness]
+  var startedAt = 0, readTimer = null, uiTimer = null;
 
-  function note(text) { log.events.push(((performance.now() / 1000).toFixed(1)) + 's ' + text); if (log.events.length > 12) log.events.shift(); }
-  function setState(text, cls, sub) { var s = $('state'); s.textContent = text; s.className = cls || ''; $('stateNote').textContent = sub || ''; }
-
-  function capsOf() { try { return track && track.getCapabilities ? track.getCapabilities() : null; } catch (e) { return null; } }
-  function settingsOf() { try { return track ? track.getSettings() : null; } catch (e) { return null; } }
+  function note(text) { log.events.push(((performance.now() - startedAt) / 1000).toFixed(1) + 's ' + text); if (log.events.length > 15) log.events.shift(); }
+  function settingsOf() { try { return track ? track.getSettings() : {}; } catch (e) { return {}; } }
   function tri(v) { return v === true ? 'yes' : v === false ? 'no' : 'not listed'; }
+  function setPill(text, cls) { var p = $('pill'); p.textContent = text; p.className = 'pill' + (cls ? ' ' + cls : ''); }
+  function setState(text, sub) { $('state').textContent = text; $('stateNote').textContent = sub || ''; }
 
-  // Mean red, green, blue of the frame shrunk to 32 x 32, plus the share of pixels with red maxed out.
-  function sample() {
+  // ---- Frames ----
+  function sample(t) {
+    if (!(t > lastT)) return;
     var d;
     try { gctx.drawImage(video, 0, 0, G, G); d = gctx.getImageData(0, 0, G, G).data; }
     catch (e) { log.readErr = e.name + ': ' + e.message; return; }
-    var r = 0, g = 0, b = 0, s = 0, px = G * G;
-    for (var i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; if (d[i] >= 250) s++; }
-    rgb = [r / px, g / px, b / px]; sat = s / px;
+    lastT = t;
+    var acc = new Float64Array(27), s = 0, px = G * G;
+    for (var i = 0, p = 0; p < px; i += 4, p++) {
+      var c = cellOf[p];
+      acc[c] += d[i]; acc[9 + c] += d[i + 1]; acc[18 + c] += d[i + 2];
+      if (d[i] >= 250) s++;
+    }
+    var whole = [0, 0, 0];
+    for (var k = 0; k < 27; k++) { whole[Math.floor(k / 9)] += acc[k]; S[3 + k].push(acc[k] / cellN[k % 9]); }
+    rgb = [whole[0] / px, whole[1] / px, whole[2] / px]; sat = s / px;
+    S[0].push(rgb[0]); S[1].push(rgb[1]); S[2].push(rgb[2]);
+    T.push(t);
+    // Drop frames older than KEEP seconds.
+    var cut = 0;
+    while (cut < T.length && T[cut] < t - KEEP) cut++;
+    if (cut > 60) { T.splice(0, cut); for (var j = 0; j < S.length; j++) S[j].splice(0, cut); }
   }
 
-  function onFrame() {
+  // Each frame's own time, in seconds. captureTime is when the camera took the frame; otherwise the
+  // callback time, which follows the frames but not exactly.
+  function frameTime(now, meta) {
+    var ms;
+    if (meta && typeof meta.captureTime === 'number' && meta.captureTime > 0) { ms = meta.captureTime; clockSrc = 'camera capture time'; }
+    else { ms = now; clockSrc = hasRVFC ? 'frame callback time' : 'screen redraw time'; }
+    if (t0 === null) t0 = ms;
+    return (ms - t0) / 1000;
+  }
+
+  function onFrame(now, meta) {
     if (!running) return;
-    var now = performance.now();
+    var wall = performance.now();
     frames++;
-    if (now - fpsStart >= 1000) {
-      fpsNow = frames * 1000 / (now - fpsStart);
-      if (lastSample) { fpsMin = Math.min(fpsMin, fpsNow); fpsMax = Math.max(fpsMax, fpsNow); }
-      frames = 0; fpsStart = now;
-    }
-    if (video.readyState >= 2) { sample(); lastSample = now; }
+    if (wall - fpsStart >= 1000) { fpsNow = frames * 1000 / (wall - fpsStart); frames = 0; fpsStart = wall; }
+    if (video.readyState >= 2) sample(frameTime(now === undefined ? wall : now, meta));
     schedule();
   }
   function schedule() {
     if (hasRVFC) video.requestVideoFrameCallback(onFrame);
-    else requestAnimationFrame(onFrame);
+    else requestAnimationFrame(function (now) { onFrame(now); });
   }
 
-  function lookOf() {
-    var r = rgb[0], g = rgb[1], b = rgb[2];
-    if (!lastSample) return ['no frames read yet', ''];
-    if ((r + g + b) / 3 < 10) return ['nearly black: covered with no light', 'warn'];
-    if (r >= 150 && r >= 2 * g && r >= 2 * b) return ['solid red: a lit fingertip', 'good'];
-    if (r > 1.4 * g && r > 1.4 * b) return ['reddish, not yet solid red', 'warn'];
-    return ['not red: lens uncovered or light off', ''];
+  // ---- Reading, once a second ----
+  function drawTrace(signal, beats) {
+    var W = canvas.width, H = canvas.height, pad = 16;
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+    for (var s = 1; s < 10; s++) { var gx = s / 10 * W; ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+    if (!signal || signal.length < 2) return;
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < signal.length; i++) { if (signal[i] < lo) lo = signal[i]; if (signal[i] > hi) hi = signal[i]; }
+    var span = hi - lo || 1;
+    var X = function (k) { return k / (signal.length - 1) * W; };
+    var Y = function (v) { return H - pad - (v - lo) / span * (H - 2 * pad); };
+    ctx.beginPath();
+    for (i = 0; i < signal.length; i++) { if (i) ctx.lineTo(X(i), Y(signal[i])); else ctx.moveTo(X(i), Y(signal[i])); }
+    ctx.strokeStyle = C.ember; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke();
+    if (beats) {
+      ctx.fillStyle = C.text;
+      for (i = 0; i < beats.length; i++) { ctx.beginPath(); ctx.arc(X(beats[i]), Y(signal[beats[i]]), 4.5, 0, 6.2832); ctx.fill(); }
+    }
   }
 
-  function render() {
+  function redNote() { return 'The picture is not the solid red of a lit fingertip (red ' + rgb[0].toFixed(0) + ', green ' + rgb[1].toFixed(0) + '). Cover both the lens and the light.'; }
+
+  function read() {
+    if (!running || !T.length) return;
+    var have = T[T.length - 1] - T[0];
+    $('prog').style.width = Math.min(100, have / WIN * 100) + '%';
+    var r = liveRead(T, S, NAMES), secs = Math.round((performance.now() - startedAt) / 1000);
+    var bpmEl = $('bpm'), notRed = !(rgb[0] > 1.4 * rgb[1] && rgb[0] > 1.4 * rgb[2]);
+    if (r.error) {
+      hist.push([secs, null, r.error, 0, 0]);
+      bpmEl.textContent = '--'; bpmEl.className = 'dim';
+      if (r.error === 'short' && have < WIN) {
+        setPill('Gathering', 'run');
+        $('msg').textContent = notRed ? redNote() : 'Hold still. The first reading comes after about 10 seconds.';
+      } else {
+        setPill('Hold still', 'warn');
+        $('msg').textContent = notRed ? redNote() : 'The brightness jumped, so your finger moved or pressed harder. Keep it planted and the number comes back in about 10 seconds.';
+      }
+      $('sQ').textContent = '--'; $('sBeats').textContent = '--';
+      drawTrace(null, null);
+      $('ax0').textContent = ''; $('ax1').textContent = ''; $('axNote').textContent = 'Waiting for 8 steady seconds';
+    } else if (r.level === 'none') {
+      hist.push([secs, r.bpm ? +r.bpm.toFixed(1) : null, 'none', +r.q.toFixed(2), r.c ? +r.c.toFixed(1) : 0]);
+      bpmEl.textContent = '--'; bpmEl.className = 'dim';
+      setPill('No pulse found', 'bad');
+      $('msg').textContent = r.dark ? 'The picture is nearly black, so no light is coming through. Check that the flash is on.' : notRed ? redNote() : 'No steady pulse yet. Press more lightly and hold still.';
+      $('sQ').textContent = Math.round(r.q * 100) + '% (clear needs 60%)';
+      $('sBeats').textContent = '--';
+      drawTrace(r.comb, null);
+      $('ax0').textContent = '-10 s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Raw signal';
+    } else {
+      var good = r.level === 'clear';
+      hist.push([secs, +r.bpm.toFixed(1), r.level, +r.q.toFixed(2), +r.c.toFixed(1)]);
+      bpmEl.textContent = Math.round(r.bpm); bpmEl.className = '';
+      setPill(good ? 'Clear pulse' : 'Weak signal', good ? 'good' : 'warn');
+      $('msg').textContent = good ? '' : 'The pulse is there but faint, so the number is approximate. Lighter pressure and a still hand help.';
+      $('sQ').textContent = Math.round(r.q * 100) + '% (clear needs 60%)';
+      $('sBeats').textContent = String(r.beats.length) + ' in ' + (r.span[1] - r.span[0]).toFixed(1) + ' s';
+      drawTrace(r.signal, r.beats);
+      $('ax0').textContent = '-' + (r.span[1] - r.span[0]).toFixed(0) + ' s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Dots mark each beat';
+    }
+    if (hist.length > 600) hist.shift();
+    var got = hist.filter(function (h) { return h[1] !== null && h[2] !== 'none' && h[2] !== 'short' && h[2] !== 'moved'; });
+    $('sHist').textContent = got.length ? got.length + ', last ' + got.slice(-5).map(function (h) { return Math.round(h[1]); }).join(', ') : 'none yet';
+  }
+
+  // ---- Camera and flash ----
+  function renderDiag() {
     if (!track) return;
-    var s = settingsOf() || {}, c = capsOf(), look = lookOf();
-    $('r').textContent = lastSample ? rgb[0].toFixed(0) : '--';
-    $('g').textContent = lastSample ? rgb[1].toFixed(0) : '--';
-    $('b').textContent = lastSample ? rgb[2].toFixed(0) : '--';
-    $('swatch').style.background = 'rgb(' + rgb.map(Math.round).join(',') + ')';
-    $('fps').textContent = fpsNow ? fpsNow.toFixed(0) + ' per second' + (hasRVFC ? '' : ' (screen redraws, not camera frames)') : '--';
-    $('look').textContent = look[0]; $('look').className = look[1];
+    var s = settingsOf();
+    $('rgb').textContent = rgb.map(function (v) { return v.toFixed(0); }).join(', ');
+    $('sat').textContent = Math.round(sat * 100) + '% of the picture';
+    $('fps').textContent = fpsNow ? fpsNow.toFixed(0) + ' per second' : '--';
     $('req').textContent = log.req + (log.reqDetail ? ' (' + log.reqDetail + ')' : '');
     $('set').textContent = tri(s.torch);
-    $('cap').textContent = c ? tri(c.torch) : 'cannot ask';
     $('cam').textContent = track.label || 'unnamed';
-    $('size').textContent = video.videoWidth ? video.videoWidth + ' x ' + video.videoHeight + (s.frameRate ? ', set to ' + Math.round(s.frameRate) + ' per second' : '') : '--';
-
-    if (log.muted) setState('Camera paused', 'warn', 'Safari paused the camera. Bring this page back to the front.');
-    else if (log.req.indexOf('refused') === 0) setState('Flash refused', 'bad', 'Safari turned the request down.');
-    else if (log.wanted === false) setState('Flash off asked', '', 'Check the back of the phone: the light should be off.');
-    else if (look[1] === 'good') setState('Solid red', 'good', 'This is what a lit fingertip looks like.');
-    else if (log.req === 'accepted') setState('Flash asked for', 'warn', 'Safari accepted the request. Check the back of the phone.');
-    $('report').textContent = report();
-  }
-
-  function report() {
-    var s = settingsOf() || {}, c = capsOf();
-    return [
-      'Bad Trip flash test, Step 0',
-      'light seen on the back: ' + $('saw').value,
-      'time: ' + new Date().toISOString(),
-      'browser: ' + navigator.userAgent,
-      'camera: ' + (track ? track.label : 'none') + (track ? ', state ' + track.readyState + (log.muted ? ', paused' : '') : ''),
-      'video: ' + video.videoWidth + 'x' + video.videoHeight + ', setting frameRate ' + (s.frameRate !== undefined ? s.frameRate : 'n/a') + ', facingMode ' + (s.facingMode || 'n/a'),
-      'flash request: ' + log.req + (log.reqDetail ? ' (' + log.reqDetail + ')' : '') + ', last asked for ' + (log.wanted === null ? 'nothing' : log.wanted ? 'on' : 'off'),
-      'getSettings().torch: ' + tri(s.torch),
-      'getCapabilities().torch: ' + (c ? tri(c.torch) : 'getCapabilities missing'),
-      'capabilities listed: ' + (c ? Object.keys(c).join(', ') : 'n/a'),
-      'frame rate: ' + (fpsNow ? fpsNow.toFixed(1) : 'n/a') + (isFinite(fpsMin) ? ' (low ' + fpsMin.toFixed(1) + ', high ' + fpsMax.toFixed(1) + ')' : '') + ', counted by ' + (hasRVFC ? 'camera frames' : 'screen redraws'),
-      'mean red/green/blue: ' + rgb.map(function (v) { return v.toFixed(1); }).join(' / ') + ', red maxed out on ' + Math.round(sat * 100) + '% of the picture',
-      'picture: ' + lookOf()[0],
-      log.readErr ? 'pixel read error: ' + log.readErr : '',
-      'events: ' + (log.events.join(' | ') || 'none')
-    ].filter(Boolean).join('\n');
+    $('size').textContent = video.videoWidth ? video.videoWidth + ' x ' + video.videoHeight : '--';
+    if (log.muted) setState('Camera paused', 'Bring this page back to the front.');
+    else if (log.req === 'refused') setState('Flash refused', log.reqDetail);
+    else setState('Camera on', 'Flash ' + (log.wanted === false ? 'off' : 'asked for'));
   }
 
   function setTorch(on) {
@@ -223,57 +534,75 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
 
   function start() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setState('No camera access', 'bad', 'This browser gives pages no camera. Open the page in Safari itself, over https.');
+      setPill('No camera', 'bad'); $('msg').textContent = 'This browser gives pages no camera. Open the page in Safari.';
       return;
     }
-    $('start').disabled = true;
-    setState('Opening camera', '', 'Allow the camera if Safari asks.');
+    $('start').disabled = true; $('start').textContent = 'Running';
+    setPill('Opening camera', 'run');
+    startedAt = performance.now();
     navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' } } }).then(function (s) {
       stream = s; track = s.getVideoTracks()[0];
       note('camera open: ' + track.label);
       track.addEventListener('mute', function () { log.muted = true; note('camera paused'); });
-      track.addEventListener('unmute', function () { log.muted = false; note('camera resumed'); });
-      track.addEventListener('ended', function () { note('camera ended'); setState('Camera stopped', 'bad', 'Reload the page to start again.'); running = false; });
+      track.addEventListener('unmute', function () { log.muted = false; note('camera resumed'); setTorch(log.wanted !== false); });
+      track.addEventListener('ended', function () { note('camera ended'); running = false; setPill('Camera stopped', 'bad'); $('msg').textContent = 'Reload the page to start again.'; });
       video.srcObject = s;
       var go = function () {
         if (running) return;
         running = true; fpsStart = performance.now(); frames = 0;
         schedule();
-        setInterval(render, 250);
-        $('on').disabled = false; $('off').disabled = false; $('copy').disabled = false; $('send').disabled = false;
+        uiTimer = setInterval(renderDiag, 500);
+        readTimer = setInterval(read, 1000);
+        $('on').disabled = false; $('off').disabled = false; $('send').disabled = false;
+        setPill('Gathering', 'run');
+        $('msg').textContent = 'Rest a fingertip lightly over the lens and the light, and hold still.';
         setTorch(true);
       };
       video.addEventListener('playing', go, { once: true });
       var p = video.play();
       if (p && p.catch) p.catch(function (e) { note('video play failed, ' + e.name); });
     }, function (e) {
-      $('start').disabled = false;
-      note('camera refused, ' + e.name);
-      setState('Camera refused', 'bad', e.name + ': ' + e.message);
-      $('report').textContent = 'Bad Trip flash test, Step 0\nbrowser: ' + navigator.userAgent + '\ncamera refused: ' + e.name + ': ' + e.message;
+      $('start').disabled = false; $('start').textContent = 'Start';
+      setPill('Camera refused', 'bad');
+      $('msg').textContent = e.name + ': ' + e.message;
     });
   }
 
-  function copy() {
-    var text = report(), btn = $('copy');
-    var done = function (ok) { btn.textContent = ok ? 'Copied' : 'Select the text below and copy it'; setTimeout(function () { btn.textContent = 'Copy results'; }, 2500); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
-    else done(false);
+  // ---- Sending ----
+  function report() {
+    var s = settingsOf(), last = hist.slice(-90);
+    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak'); });
+    var recent = got.slice(-10).map(function (h) { return h[1]; });
+    var med = recent.length ? recent.slice().sort(function (a, b) { return a - b; })[recent.length >> 1] : null;
+    return [
+      'Bad Trip live pulse, Step 1',
+      'time: ' + new Date().toISOString(),
+      'neck count: ' + ($('neck').value || 'not given') + ', room: ' + $('room').value,
+      'page median of last 10 readings: ' + (med === null ? 'none' : med.toFixed(1)),
+      'browser: ' + navigator.userAgent,
+      'camera: ' + (track ? track.label + ', ' + video.videoWidth + 'x' + video.videoHeight : 'none') + ', frame rate ' + fpsNow.toFixed(1) + ', clock ' + clockSrc,
+      'flash: request ' + log.req + (log.reqDetail ? ' (' + log.reqDetail + ')' : '') + ', browser reports ' + tri(s.torch),
+      'mean red/green/blue now: ' + rgb.map(function (v) { return v.toFixed(1); }).join(' / ') + ', red maxed out on ' + Math.round(sat * 100) + '%',
+      log.readErr ? 'pixel read error: ' + log.readErr : '',
+      'events: ' + (log.events.join(' | ') || 'none'),
+      'readings (seconds since start, bpm, level, strength, sharpness), last ' + last.length + ':',
+      last.map(function (h) { return h[0] + ' ' + (h[1] === null ? '-' : h[1]) + ' ' + h[2] + ' ' + h[3] + ' ' + h[4]; }).join('\n')
+    ].filter(Boolean).join('\n');
+  }
+
+  // Opens a prefilled issue on this repo. Nothing is sent until Judah taps Submit on GitHub.
+  function send() {
+    var neck = $('neck').value, med = $('sHist').textContent;
+    var title = 'Live pulse: neck ' + (neck || '?') + ', page ' + ($('bpm').textContent) + ', ' + $('room').value;
+    var body = '```\n' + report() + '\n```';
+    window.open('https://github.com/Ju12224/bad-trip-sensor/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body), '_blank');
   }
 
   $('start').addEventListener('click', start);
   $('on').addEventListener('click', function () { setTorch(true); });
   $('off').addEventListener('click', function () { setTorch(false); });
-  $('copy').addEventListener('click', copy);
-
-  // Opens a prefilled issue on this repo. Nothing is sent until Judah taps Submit on GitHub.
-  function send() {
-    var saw = $('saw').value;
-    var title = 'Flash test: light ' + (saw === 'not answered' ? 'not answered' : saw) + ', red ' + rgb[0].toFixed(0);
-    var body = '```\n' + report() + '\n```';
-    window.open('https://github.com/Ju12224/bad-trip-sensor/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body), '_blank');
-  }
   $('send').addEventListener('click', send);
+  drawTrace(null, null);
 })();
 </script>
 </body>
