@@ -343,6 +343,60 @@ function analyze(T, S, names) {
   return out;
 }
 
+// ---- Quality measurements (new): what a real pulse looks like beyond one spectral peak ----
+// r: a result from analyze() that has a rate. Returns named numbers, each capped so one wild value cannot dominate.
+var FEATURE_NAMES = ['strength', 'sharpness', 'halves', 'thirds', 'acPeriod', 'acDouble', 'acHalf',
+  'ibiSpread', 'ibiAgree', 'shape', 'entropy', 'skew', 'beatRatio', 'rate'];
+function qualityFeatures(r) {
+  var x = r.comb, n = x.length, period = FS * 60 / r.bpm, i, k;
+  var cap = function (v, lo, hi) { return !isFinite(v) ? hi : Math.max(lo, Math.min(hi, v)); };
+  // Self-similarity one beat apart should be high, half a beat apart low.
+  var acP = acfAt(x, Math.round(period)), acD = acfAt(x, Math.round(2 * period)), acH = acfAt(x, Math.round(period / 2));
+  // Beat-to-beat gaps: even, and agreeing with the spectral rate.
+  var b = r.beats || [], ibi = [];
+  for (i = 1; i < b.length; i++) ibi.push((b[i] - b[i - 1]) / FS);
+  var ibiSpread = 1, ibiAgree = 1;
+  if (ibi.length >= 2) {
+    var m = 0; for (i = 0; i < ibi.length; i++) m += ibi[i]; m /= ibi.length;
+    ibiSpread = std(ibi) / m;
+    ibiAgree = Math.abs(60 / median(ibi) - r.bpm) / r.bpm;
+  }
+  // Beat shape: cut one period around each beat, resample to 24 points, compare each with the average beat.
+  var P = 24, segs = [], pre = Math.round(0.3 * period), len = Math.round(period);
+  for (i = 0; i < b.length; i++) {
+    var s0 = b[i] - pre;
+    if (s0 < 0 || s0 + len >= n) continue;
+    var seg = new Float64Array(P);
+    for (k = 0; k < P; k++) { var t = s0 + k * len / (P - 1), j = Math.floor(t), f = t - j; seg[k] = x[j] * (1 - f) + x[Math.min(n - 1, j + 1)] * f; }
+    segs.push(seg);
+  }
+  var shape = 0;
+  if (segs.length >= 3) {
+    var tpl = new Float64Array(P);
+    segs.forEach(function (s) { for (k = 0; k < P; k++) tpl[k] += s[k] / segs.length; });
+    var corr = function (a, c) {
+      var ma = 0, mc = 0, sa = 0, sc = 0, sac = 0;
+      for (k = 0; k < P; k++) { ma += a[k] / P; mc += c[k] / P; }
+      for (k = 0; k < P; k++) { sa += (a[k] - ma) * (a[k] - ma); sc += (c[k] - mc) * (c[k] - mc); sac += (a[k] - ma) * (c[k] - mc); }
+      return sa > 0 && sc > 0 ? sac / Math.sqrt(sa * sc) : 0;
+    };
+    segs.forEach(function (s) { shape += corr(s, tpl) / segs.length; });
+  }
+  // How spread the power is over 40 to 200 bpm (1 = flat noise, low = one clean rhythm).
+  var Sp = spectrum(x), tot = 0, H = 0;
+  for (k = 10; k <= 170; k++) tot += Sp[k];
+  if (tot > 0) for (k = 10; k <= 170; k++) { var pk = Sp[k] / tot; if (pk > 0) H -= pk * Math.log(pk); }
+  var entropy = tot > 0 ? H / Math.log(161) : 1;
+  // Pulse waves rise fast and fall slowly, so they are lopsided.
+  var mu = 0, m2 = 0, m3 = 0;
+  for (i = 0; i < n; i++) mu += x[i] / n;
+  for (i = 0; i < n; i++) { var d = x[i] - mu; m2 += d * d / n; m3 += d * d * d / n; }
+  var skew = m2 > 0 ? m3 / Math.pow(m2, 1.5) : 0;
+  var beatRatio = b.length / (n / period);
+  return [cap(r.q, 0, 1), cap(Math.log(r.c || 1), 0, 5), cap(r.hd, 0, 15), cap(r.td, 0, 15), acP, acD, acH,
+    cap(ibiSpread, 0, 1), cap(ibiAgree, 0, 1), shape, entropy, cap(skew, -3, 3), cap(beatRatio, 0, 2), r.bpm / 100];
+}
+
 // ---- Live use (new for Step 1) ----
 // The window handed to analyze() is 11.5 s: analyze() always skips its first 1.5 s, so it reads the last
 // 10 s and needs at least 8 steady seconds of them. That is the spec's sliding 8 to 10 second window.
@@ -360,8 +414,12 @@ function windowFrom(T, S, now) {
 // Weak needs only 35% strength (Judah's call): no real reading had sharpness 8 or more below 53% strength, and in
 // simulation 35% showed a weak number on pure noise 2.8% of the time against 1.3% at 50%, never a clear one.
 var LIVE = { qClear: 0.6, cClear: 12, qWeak: 0.35, cWeak: 8, cUnsure: 5, hdMax: 8, tdMax: 10 };
+// Below 50 bpm, readings were mostly a beat-skipping mistake: about 41 in Judah's runs, and 37 to 48 on BUT PPG
+// clips where the ECG said 83 to 116. Over 5% of the BUT PPG finger clips had a true rate of 57 or less, so a very
+// fit player at rest could be cut off; that trade is accepted for now.
+var MIN_BPM = 50;
 function liveLevel(r) {
-  if (r.error || r.bpm === undefined) return 'none';
+  if (r.error || r.bpm === undefined || r.bpm < MIN_BPM) return 'none';
   var steady = r.hd <= LIVE.hdMax && r.td <= LIVE.tdMax;
   if (r.q >= LIVE.qClear && r.c >= LIVE.cClear && steady) return 'clear';
   if (r.q >= LIVE.qWeak && r.c >= LIVE.cWeak && steady) return 'weak';
