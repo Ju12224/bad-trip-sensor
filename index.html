@@ -79,6 +79,7 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
       <dt>Signal strength</dt><dd id="sQ">--</dd>
       <dt>Beats in the window</dt><dd id="sBeats">--</dd>
       <dt>Readings so far</dt><dd id="sHist">--</dd>
+      <dt>Phone motion</dt><dd id="sMotion">--</dd>
     </dl>
   </div>
 
@@ -449,7 +450,96 @@ function liveRead(T, S, names) {
   if (!r.error) { r.specLevel = r.level; r.level = liveLevel(r); }
   return r;
 }
-if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN, LIVE: LIVE };
+// ---- Motion (new): the phone's own motion sensors, summarized once a second ----
+// M: samples {t (s), a (m/s^2 of user acceleration, gravity removed), g (deg/s of rotation)}.
+// The two "moving" limits are first guesses, not measured yet: a phone on a table reads near 0, a hand holding
+// still a few tenths, walking well over 1 m/s^2. The per-second log carries the real values for tuning.
+var MOTION = { aMoving: 0.6, gMoving: 30, recent: 2, rhythmMin: 0.15, rhythmBand: 5 };
+function motionSummary(M, now) {
+  var out = { have: M.length > 0, a: 0, g: 0, moving: false, rhythm: null, rhythmShare: 0 };
+  if (!M.length) return out;
+  var na = 0, i;
+  for (i = M.length - 1; i >= 0 && M[i].t >= now - MOTION.recent; i--) { out.a += M[i].a * M[i].a; out.g += M[i].g * M[i].g; na++; }
+  if (na) { out.a = Math.sqrt(out.a / na); out.g = Math.sqrt(out.g / na); }
+  out.moving = out.a > MOTION.aMoving || out.g > MOTION.gMoving;
+  // The strongest rhythm in the motion over the last 10 s (steps, tapping, rocking) in beats per minute. If the
+  // pulse reading lands on it, the "pulse" is probably the motion pushing the fingertip.
+  var T = [], V = [];
+  for (i = 0; i < M.length; i++) if (M[i].t >= now - 10) { T.push(M[i].t); V.push(M[i].a); }
+  if (T.length > 20 && T[T.length - 1] - T[0] > 5) {
+    var x = resample(T, V, T[0], T[T.length - 1]), mu = 0;
+    for (i = 0; i < x.length; i++) mu += x[i] / x.length;
+    for (i = 0; i < x.length; i++) x[i] -= mu;
+    var p = pitch(x);
+    if (p) { out.rhythm = p.bpm; out.rhythmShare = p.q; }
+  }
+  return out;
+}
+
+// ---- Second-to-second tracking (new) ----
+// A heart cannot jump from 84 to 41 in a second. Each new reading is checked against the tracked rate; a reading
+// that jumps too far is replaced by the strongest rhythm near the tracked rate if there is one, else the last rate
+// is held for a few seconds. Three readings in a row that agree with each other but not with the track mean the
+// rate really changed, and the track moves there.
+var TRACK = { hold: 6, jump: 6, jumpPerSec: 3, near: 12, nearShare: 0.3, relockN: 3, relockSpread: 6, agreeUnsure: 6 };
+function createTracker() { return { rate: null, lastAt: -1e9, recent: [], pend: [] }; }
+function peakNear(comb, center, half) {
+  var P = spectrum(comb), lo = Math.max(1, Math.round(center - half) - 30), hi = Math.min(389, Math.round(center + half) - 30);
+  if (hi <= lo) return null;
+  var kl = lo, kg = 10, k;
+  for (k = lo; k <= hi; k++) if (P[k] > P[kl]) kl = k;
+  for (k = 10; k <= 170; k++) if (P[k] > P[kg]) kg = k;
+  if (kl === lo || kl === hi) return null;   // no real peak inside the band, just its edge
+  var a = P[kl - 1], b = P[kl], c = P[kl + 1], den = a - 2 * b + c;
+  return { bpm: 30 + kl + (den !== 0 ? 0.5 * (a - c) / den : 0), share: P[kg] > 0 ? b / P[kg] : 0 };
+}
+// r: liveRead() result. m: motionSummary() or null. now: seconds. Returns {state, bpm, why}.
+// state: 'clear' | 'weak' (shown), 'tracked' (a weaker reading the track vouches for), 'held' (last rate kept),
+// 'unsure' (dim guess), 'moving', 'none', or r.error ('short', 'moved').
+function trackStep(tk, r, m, now) {
+  var active = tk.rate !== null && now - tk.lastAt <= TRACK.hold;
+  var hold = function (why) { return active ? { state: 'held', bpm: tk.rate, why: why } : null; };
+  var accept = function (bpm, state, why) {
+    tk.recent.push(bpm); if (tk.recent.length > 3) tk.recent.shift();
+    tk.rate = median(tk.recent); tk.lastAt = now; tk.pend = [];
+    return { state: state, bpm: tk.rate, why: why };
+  };
+  if (m && m.moving) return hold('phone moving') || { state: 'moving', bpm: null, why: 'phone moving' };
+  if (r.error || r.bpm === undefined || !r.comb) return hold(r.error || 'no rate') || { state: r.error || 'none', bpm: null, why: '' };
+  var bpm = r.bpm, level = r.level;
+  var steady = r.hd <= LIVE.hdMax && r.td <= LIVE.tdMax;
+  // A reading sitting on the motion's own rhythm is the motion, not the heart.
+  if (m && m.rhythm && m.rhythmShare >= MOTION.rhythmMin && m.a > 0.05 && Math.abs(bpm - m.rhythm) <= MOTION.rhythmBand)
+    return hold('matches motion rhythm') || { state: 'none', bpm: null, why: 'matches motion rhythm' };
+  if (!active) {
+    tk.rate = null; tk.recent = [];
+    if (level === 'clear' || level === 'weak') return accept(bpm, level, 'start');
+    return { state: level === 'unsure' ? 'unsure' : 'none', bpm: level === 'unsure' ? bpm : null, why: '' };
+  }
+  var allowed = TRACK.jump + TRACK.jumpPerSec * (now - tk.lastAt);
+  var usable = (level === 'clear' || level === 'weak') ||
+    (r.q >= LIVE.qWeak && r.c >= LIVE.cUnsure && steady && bpm >= MIN_BPM && Math.abs(bpm - tk.rate) <= TRACK.agreeUnsure);
+  if (usable && Math.abs(bpm - tk.rate) <= allowed)
+    return accept(bpm, level === 'clear' || level === 'weak' ? level : 'tracked', 'agrees');
+  // Too far, or too weak: look for a real rhythm near the track instead.
+  var near = peakNear(r.comb, tk.rate, TRACK.near);
+  if (near && near.share >= TRACK.nearShare && Math.abs(near.bpm - tk.rate) <= allowed)
+    return accept(near.bpm, 'tracked', 'peak near track');
+  // A run of strong readings that agree with each other is a real change.
+  if (level === 'clear' || level === 'weak') {
+    tk.pend.push(bpm);
+    if (tk.pend.length >= TRACK.relockN) {
+      var last = tk.pend.slice(-TRACK.relockN);
+      if (Math.max.apply(null, last) - Math.min.apply(null, last) <= TRACK.relockSpread) {
+        tk.recent = []; return accept(median(last), level, 'rate changed');
+      }
+    }
+  }
+  return hold('jump of ' + Math.round(bpm - tk.rate)) || { state: 'none', bpm: null, why: '' };
+}
+
+if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN, LIVE: LIVE,
+  createTracker: createTracker, trackStep: trackStep, motionSummary: motionSummary, MOTION: MOTION, TRACK: TRACK };
 </script>
 
 <script>
@@ -566,48 +656,91 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       ' (a number needs 35% and sharpness 8; a dim guess shows from sharpness 5)';
   }
 
+  // What the page shows for each tracker state: pill text, pill color, number style, message.
+  var SHOWN = { clear: 1, weak: 1, tracked: 1, held: 1 };
   function read() {
     if (!running || !T.length) return;
-    var have = T[T.length - 1] - T[0];
+    var have = T[T.length - 1] - T[0], now = (performance.now() - startedAt) / 1000;
     $('prog').style.width = Math.min(100, have / WIN * 100) + '%';
-    var r = liveRead(T, S, NAMES), secs = Math.round((performance.now() - startedAt) / 1000);
+    var r = liveRead(T, S, NAMES), secs = Math.round(now);
+    var m = motionOn ? motionSummary(M, performance.now() / 1000) : null;
+    var t = trackStep(tracker, r, m, now);
     var bpmEl = $('bpm'), notRed = !(rgb[0] > 1.4 * rgb[1] && rgb[0] > 1.4 * rgb[2]);
-    if (r.error) {
-      hist.push([secs, null, r.error, 0, 0]);
-      bpmEl.textContent = '--'; bpmEl.className = 'dim';
-      if (r.error === 'short' && have < WIN) {
-        setPill('Gathering', 'run');
-        $('msg').textContent = notRed ? redNote() : 'Hold still. The first reading comes after about 10 seconds.';
-      } else {
-        setPill('Hold still', 'warn');
-        $('msg').textContent = notRed ? redNote() : 'The brightness jumped, so your finger moved or pressed harder. Keep it planted and the number comes back in about 10 seconds.';
-      }
-      $('sQ').textContent = '--'; $('sBeats').textContent = '--';
-      drawTrace(null, null);
-      $('ax0').textContent = ''; $('ax1').textContent = ''; $('axNote').textContent = 'Waiting for 8 steady seconds';
-    } else if (r.level === 'none') {
-      hist.push([secs, r.bpm ? +r.bpm.toFixed(1) : null, 'none', +r.q.toFixed(2), r.c ? +r.c.toFixed(1) : 0, extra(r)]);
-      bpmEl.textContent = '--'; bpmEl.className = 'dim';
-      setPill('No pulse found', 'bad');
-      $('msg').textContent = r.dark ? 'The picture is nearly black, so no light is coming through. Check that the flash is on.' : notRed ? redNote() : 'No steady pulse yet. Press more lightly and hold still.';
-      $('sQ').textContent = quality(r);
-      $('sBeats').textContent = '--';
-      drawTrace(r.comb, null);
-      $('ax0').textContent = '-10 s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Raw signal';
-    } else {
-      var good = r.level === 'clear', unsure = r.level === 'unsure';
-      hist.push([secs, +r.bpm.toFixed(1), r.level, +r.q.toFixed(2), +r.c.toFixed(1), extra(r)]);
-      bpmEl.textContent = Math.round(r.bpm); bpmEl.className = unsure ? 'dim' : '';
-      setPill(good ? 'Clear pulse' : unsure ? 'Unsure' : 'Weak signal', good ? 'good' : 'warn');
-      $('msg').textContent = good ? '' : unsure ? 'Best guess, not trusted yet. Rest the phone on a table, lens up, and lay your fingertip on it without pressing.' : 'The pulse is there but faint, so the number is approximate. Lighter pressure and a still hand help.';
-      $('sQ').textContent = quality(r);
+    var f1 = function (v) { return v === undefined || v === null || !isFinite(v) || v > 90 ? '-' : (+v).toFixed(1); };
+    hist.push([secs, t.bpm === null ? null : +t.bpm.toFixed(1), t.state,
+      [r.bpm !== undefined ? r.bpm.toFixed(1) : '-', r.q !== undefined ? r.q.toFixed(2) : '-', r.c ? r.c.toFixed(1) : '-',
+        f1(r.hd), f1(r.td), r.level || '-', fpsNow.toFixed(0),
+        m ? m.a.toFixed(2) : '-', m ? m.g.toFixed(0) : '-', m && m.rhythm ? Math.round(m.rhythm) + '/' + m.rhythmShare.toFixed(2) : '-',
+        (t.why || '-').replace(/ /g, '_')].join(' ')]);
+    if (hist.length > 600) hist.shift();
+
+    if (SHOWN[t.state]) {
+      bpmEl.textContent = Math.round(t.bpm); bpmEl.className = t.state === 'held' ? 'dim' : '';
+    } else if (t.state === 'unsure') {
+      bpmEl.textContent = Math.round(t.bpm); bpmEl.className = 'dim';
+    } else { bpmEl.textContent = '--'; bpmEl.className = 'dim'; }
+
+    var pill = {
+      clear: ['Clear pulse', 'good'], weak: ['Weak signal', 'warn'], tracked: ['Tracking', 'good'], held: ['Holding', 'warn'],
+      unsure: ['Unsure', 'warn'], moving: ['Phone moving', 'warn'], none: ['No pulse found', 'bad'],
+      short: ['Gathering', 'run'], moved: ['Hold still', 'warn']
+    }[t.state] || ['No pulse found', 'bad'];
+    if (t.state === 'short' && have >= WIN) pill = ['Hold still', 'warn'];
+    setPill(pill[0], pill[1]);
+
+    var msg = '';
+    if (notRed && !SHOWN[t.state]) msg = r.dark ? 'The picture is nearly black, so no light is coming through. Check that the flash is on.' : redNote();
+    else if (t.state === 'held') msg = 'Keeping the last good number while ' + (t.why === 'phone moving' ? 'the phone moves. Hold it still.' : 'the signal settles (' + t.why + ').');
+    else if (t.state === 'tracked') msg = 'A weaker reading, kept because it matches the last few seconds.';
+    else if (t.state === 'weak') msg = 'The pulse is there but faint, so the number is approximate.';
+    else if (t.state === 'unsure') msg = 'Best guess, not trusted yet. Rest the phone on a table, lens up, and lay your fingertip on it without pressing.';
+    else if (t.state === 'moving') msg = 'The phone is moving. Hold it still, or rest it on a table.';
+    else if (t.state === 'short') msg = have < WIN ? 'Hold still. The first reading comes after about 10 seconds.' : 'The brightness jumped, so your finger moved or pressed harder. Keep it planted.';
+    else if (t.state === 'moved') msg = 'The brightness jumped, so your finger moved or pressed harder. Keep it planted and the number comes back in about 10 seconds.';
+    else if (t.state === 'none') msg = t.why === 'matches motion rhythm' ? 'The signal is following the phone\'s motion, not your pulse. Hold still.' : 'No steady pulse yet. Press more lightly and hold still.';
+    $('msg').textContent = msg;
+
+    $('sQ').textContent = r.q !== undefined ? quality(r) : '--';
+    $('sMotion').textContent = !motionOn ? motionNote : !m || !m.have ? 'no data yet' :
+      (m.moving ? 'moving' : 'still') + ' (shake ' + m.a.toFixed(2) + ' m/s², turn ' + m.g.toFixed(0) + '°/s' + (m.rhythm ? ', rhythm ' + Math.round(m.rhythm) + '/min' : '') + ')';
+    if (r.signal && r.beats) {
       $('sBeats').textContent = String(r.beats.length) + ' in ' + (r.span[1] - r.span[0]).toFixed(1) + ' s';
       drawTrace(r.signal, r.beats);
       $('ax0').textContent = '-' + (r.span[1] - r.span[0]).toFixed(0) + ' s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Dots mark each beat';
+    } else if (r.comb) {
+      $('sBeats').textContent = '--'; drawTrace(r.comb, null);
+      $('ax0').textContent = '-10 s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Raw signal';
+    } else {
+      $('sBeats').textContent = '--'; drawTrace(null, null);
+      $('ax0').textContent = ''; $('ax1').textContent = ''; $('axNote').textContent = 'Waiting for 8 steady seconds';
     }
-    if (hist.length > 600) hist.shift();
-    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak'); });
+    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak' || h[2] === 'tracked'); });
     $('sHist').textContent = got.length ? got.length + ', last ' + got.slice(-5).map(function (h) { return Math.round(h[1]); }).join(', ') : 'none yet';
+  }
+
+  // ---- Motion sensors ----
+  // iPhone browsers ask once before handing motion data to a page, and only from a tap.
+  var M = [], motionOn = false, motionNote = 'not started', tracker = createTracker();
+  function onMotion(e) {
+    var a = e.acceleration, g = e.rotationRate, now = performance.now() / 1000, am;
+    if (a && a.x !== null) am = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+    else if (e.accelerationIncludingGravity && e.accelerationIncludingGravity.x !== null) {
+      var ag = e.accelerationIncludingGravity; am = Math.abs(Math.sqrt(ag.x * ag.x + ag.y * ag.y + ag.z * ag.z) - 9.81);
+    } else return;
+    var gm = g && g.alpha !== null ? Math.sqrt(g.alpha * g.alpha + g.beta * g.beta + g.gamma * g.gamma) : 0;
+    M.push({ t: now, a: am, g: gm });
+    if (!motionOn) { motionOn = true; note('motion data flowing'); }
+    while (M.length && M[0].t < now - 15) M.shift();
+  }
+  function startMotion() {
+    if (typeof DeviceMotionEvent === 'undefined') { motionNote = 'not available in this browser'; return; }
+    var listen = function () { window.addEventListener('devicemotion', onMotion); motionNote = 'waiting for data'; };
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function (s) {
+        note('motion permission ' + s);
+        if (s === 'granted') listen(); else motionNote = 'permission ' + s + ' (readings work without it)';
+      }, function (e) { note('motion permission error ' + e.name); motionNote = 'permission failed: ' + e.name; });
+    } else listen();
   }
 
   // ---- Camera and flash ----
@@ -644,6 +777,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     $('start').disabled = true; $('start').textContent = 'Running';
     setPill('Opening camera', 'run');
     startedAt = performance.now();
+    startMotion();   // must be called straight from the tap
     navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' } } }).then(function (s) {
       stream = s; track = s.getVideoTracks()[0];
       note('camera open: ' + track.label);
@@ -674,8 +808,8 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
 
   // ---- Sending ----
   function report() {
-    var s = settingsOf(), last = hist.slice(-90);
-    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak'); });
+    var s = settingsOf(), last = hist.slice(-45);
+    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak' || h[2] === 'tracked'); });
     var recent = got.slice(-10).map(function (h) { return h[1]; });
     var med = recent.length ? recent.slice().sort(function (a, b) { return a - b; })[recent.length >> 1] : null;
     return [
@@ -689,8 +823,9 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       'mean red/green/blue now: ' + rgb.map(function (v) { return v.toFixed(1); }).join(' / ') + ', red maxed out on ' + Math.round(sat * 100) + '%',
       log.readErr ? 'pixel read error: ' + log.readErr : '',
       'events: ' + (log.events.join(' | ') || 'none'),
-      'readings (seconds since start, bpm, level, strength, sharpness, halves gap, thirds gap, clip verdict, fps), last ' + last.length + ':',
-      last.map(function (h) { return h[0] + ' ' + (h[1] === null ? '-' : h[1]) + ' ' + h[2] + ' ' + h[3] + ' ' + h[4] + (h[5] ? ' ' + h[5] : ''); }).join('\n')
+      'motion: ' + (motionOn ? 'on' : motionNote),
+      'per second: secs shown state | raw-bpm strength sharpness halves thirds level fps | shake turn motion-rhythm/share | why; last ' + last.length + ':',
+      last.map(function (h) { return h[0] + ' ' + (h[1] === null ? '-' : h[1]) + ' ' + h[2] + ' | ' + h[3]; }).join('\n')
     ].filter(Boolean).join('\n');
   }
 
