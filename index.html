@@ -352,12 +352,29 @@ function windowFrom(T, S, now) {
   while (from < T.length && T[from] < now - WIN) from++;
   return { T: T.slice(from), S: S.map(function (s) { return s.slice(from); }) };
 }
+// Live verdict, tuned on Judah's first live run (November 21, neck count about 90). The clip verdict holds the
+// halves and thirds of the window within 2 to 5 bpm of the whole. A real heart speeds up and slows down with
+// each breath, by more than that over 5 seconds, so live it threw out good readings (strength 0.8, sharpness 40,
+// rate 90). Sharpness separated right from wrong instead: every reading with sharpness 8 or more sat between
+// 88 and 96 bpm, and the half-rate mistakes (about 42 bpm) and off readings (84 to 86) all had less than 8.
+// Weak needs only 35% strength (Judah's call): no real reading had sharpness 8 or more below 53% strength, and in
+// simulation 35% showed a weak number on pure noise 2.8% of the time against 1.3% at 50%, never a clear one.
+var LIVE = { qClear: 0.6, cClear: 12, qWeak: 0.35, cWeak: 8, hdMax: 8, tdMax: 10 };
+function liveLevel(r) {
+  if (r.error || r.bpm === undefined) return 'none';
+  var steady = r.hd <= LIVE.hdMax && r.td <= LIVE.tdMax;
+  if (r.q >= LIVE.qClear && r.c >= LIVE.cClear && steady) return 'clear';
+  if (r.q >= LIVE.qWeak && r.c >= LIVE.cWeak && steady) return 'weak';
+  return 'none';
+}
 function liveRead(T, S, names) {
   if (!T.length) return { error: 'short', dur: 0 };
   var w = windowFrom(T, S, T[T.length - 1]);
-  return analyze(w.T, w.S, names);
+  var r = analyze(w.T, w.S, names);
+  if (!r.error) { r.specLevel = r.level; r.level = liveLevel(r); }
+  return r;
 }
-if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN };
+if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN, LIVE: LIVE };
 </script>
 
 <script>
@@ -462,6 +479,12 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
 
   function redNote() { return 'The picture is not the solid red of a lit fingertip (red ' + rgb[0].toFixed(0) + ', green ' + rgb[1].toFixed(0) + '). Cover both the lens and the light.'; }
 
+  // Halves and thirds gaps in bpm, the clip verdict, and the frame rate, for tuning.
+  function extra(r) {
+    var f = function (v) { return v === undefined || v > 90 ? '-' : v.toFixed(1); };
+    return f(r.hd) + ' ' + f(r.td) + ' ' + (r.specLevel || '-') + ' ' + fpsNow.toFixed(0);
+  }
+
   function read() {
     if (!running || !T.length) return;
     var have = T[T.length - 1] - T[0];
@@ -482,7 +505,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       drawTrace(null, null);
       $('ax0').textContent = ''; $('ax1').textContent = ''; $('axNote').textContent = 'Waiting for 8 steady seconds';
     } else if (r.level === 'none') {
-      hist.push([secs, r.bpm ? +r.bpm.toFixed(1) : null, 'none', +r.q.toFixed(2), r.c ? +r.c.toFixed(1) : 0]);
+      hist.push([secs, r.bpm ? +r.bpm.toFixed(1) : null, 'none', +r.q.toFixed(2), r.c ? +r.c.toFixed(1) : 0, extra(r)]);
       bpmEl.textContent = '--'; bpmEl.className = 'dim';
       setPill('No pulse found', 'bad');
       $('msg').textContent = r.dark ? 'The picture is nearly black, so no light is coming through. Check that the flash is on.' : notRed ? redNote() : 'No steady pulse yet. Press more lightly and hold still.';
@@ -492,7 +515,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       $('ax0').textContent = '-10 s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Raw signal';
     } else {
       var good = r.level === 'clear';
-      hist.push([secs, +r.bpm.toFixed(1), r.level, +r.q.toFixed(2), +r.c.toFixed(1)]);
+      hist.push([secs, +r.bpm.toFixed(1), r.level, +r.q.toFixed(2), +r.c.toFixed(1), extra(r)]);
       bpmEl.textContent = Math.round(r.bpm); bpmEl.className = '';
       setPill(good ? 'Clear pulse' : 'Weak signal', good ? 'good' : 'warn');
       $('msg').textContent = good ? '' : 'The pulse is there but faint, so the number is approximate. Lighter pressure and a still hand help.';
@@ -585,8 +608,8 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       'mean red/green/blue now: ' + rgb.map(function (v) { return v.toFixed(1); }).join(' / ') + ', red maxed out on ' + Math.round(sat * 100) + '%',
       log.readErr ? 'pixel read error: ' + log.readErr : '',
       'events: ' + (log.events.join(' | ') || 'none'),
-      'readings (seconds since start, bpm, level, strength, sharpness), last ' + last.length + ':',
-      last.map(function (h) { return h[0] + ' ' + (h[1] === null ? '-' : h[1]) + ' ' + h[2] + ' ' + h[3] + ' ' + h[4]; }).join('\n')
+      'readings (seconds since start, bpm, level, strength, sharpness, halves gap, thirds gap, clip verdict, fps), last ' + last.length + ':',
+      last.map(function (h) { return h[0] + ' ' + (h[1] === null ? '-' : h[1]) + ' ' + h[2] + ' ' + h[3] + ' ' + h[4] + (h[5] ? ' ' + h[5] : ''); }).join('\n')
     ].filter(Boolean).join('\n');
   }
 
