@@ -359,12 +359,14 @@ function windowFrom(T, S, now) {
 // 88 and 96 bpm, and the half-rate mistakes (about 42 bpm) and off readings (84 to 86) all had less than 8.
 // Weak needs only 35% strength (Judah's call): no real reading had sharpness 8 or more below 53% strength, and in
 // simulation 35% showed a weak number on pure noise 2.8% of the time against 1.3% at 50%, never a clear one.
-var LIVE = { qClear: 0.6, cClear: 12, qWeak: 0.35, cWeak: 8, hdMax: 8, tdMax: 10 };
+var LIVE = { qClear: 0.6, cClear: 12, qWeak: 0.35, cWeak: 8, cUnsure: 5, hdMax: 8, tdMax: 10 };
 function liveLevel(r) {
   if (r.error || r.bpm === undefined) return 'none';
   var steady = r.hd <= LIVE.hdMax && r.td <= LIVE.tdMax;
   if (r.q >= LIVE.qClear && r.c >= LIVE.cClear && steady) return 'clear';
   if (r.q >= LIVE.qWeak && r.c >= LIVE.cWeak && steady) return 'weak';
+  // A best guess shown dimmed so the page is never blank while the finger is roughly in place. Not counted.
+  if (r.q >= LIVE.qWeak && r.c >= LIVE.cUnsure && steady) return 'unsure';
   return 'none';
 }
 function liveRead(T, S, names) {
@@ -485,6 +487,12 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     return f(r.hd) + ' ' + f(r.td) + ' ' + (r.specLevel || '-') + ' ' + fpsNow.toFixed(0);
   }
 
+  // Strength alone misleads: a wrong half-speed reading can score 80%. Sharpness is what lets a number through.
+  function quality(r) {
+    return 'strength ' + Math.round(r.q * 100) + '%, sharpness ' + (r.c ? r.c.toFixed(0) : 0) +
+      ' (a number needs 35% and sharpness 8; a dim guess shows from sharpness 5)';
+  }
+
   function read() {
     if (!running || !T.length) return;
     var have = T[T.length - 1] - T[0];
@@ -509,23 +517,23 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       bpmEl.textContent = '--'; bpmEl.className = 'dim';
       setPill('No pulse found', 'bad');
       $('msg').textContent = r.dark ? 'The picture is nearly black, so no light is coming through. Check that the flash is on.' : notRed ? redNote() : 'No steady pulse yet. Press more lightly and hold still.';
-      $('sQ').textContent = Math.round(r.q * 100) + '% (clear needs 60%)';
+      $('sQ').textContent = quality(r);
       $('sBeats').textContent = '--';
       drawTrace(r.comb, null);
       $('ax0').textContent = '-10 s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Raw signal';
     } else {
-      var good = r.level === 'clear';
+      var good = r.level === 'clear', unsure = r.level === 'unsure';
       hist.push([secs, +r.bpm.toFixed(1), r.level, +r.q.toFixed(2), +r.c.toFixed(1), extra(r)]);
-      bpmEl.textContent = Math.round(r.bpm); bpmEl.className = '';
-      setPill(good ? 'Clear pulse' : 'Weak signal', good ? 'good' : 'warn');
-      $('msg').textContent = good ? '' : 'The pulse is there but faint, so the number is approximate. Lighter pressure and a still hand help.';
-      $('sQ').textContent = Math.round(r.q * 100) + '% (clear needs 60%)';
+      bpmEl.textContent = Math.round(r.bpm); bpmEl.className = unsure ? 'dim' : '';
+      setPill(good ? 'Clear pulse' : unsure ? 'Unsure' : 'Weak signal', good ? 'good' : 'warn');
+      $('msg').textContent = good ? '' : unsure ? 'Best guess, not trusted yet. Rest the phone on a table, lens up, and lay your fingertip on it without pressing.' : 'The pulse is there but faint, so the number is approximate. Lighter pressure and a still hand help.';
+      $('sQ').textContent = quality(r);
       $('sBeats').textContent = String(r.beats.length) + ' in ' + (r.span[1] - r.span[0]).toFixed(1) + ' s';
       drawTrace(r.signal, r.beats);
       $('ax0').textContent = '-' + (r.span[1] - r.span[0]).toFixed(0) + ' s'; $('ax1').textContent = 'now'; $('axNote').textContent = 'Dots mark each beat';
     }
     if (hist.length > 600) hist.shift();
-    var got = hist.filter(function (h) { return h[1] !== null && h[2] !== 'none' && h[2] !== 'short' && h[2] !== 'moved'; });
+    var got = hist.filter(function (h) { return h[1] !== null && (h[2] === 'clear' || h[2] === 'weak'); });
     $('sHist').textContent = got.length ? got.length + ', last ' + got.slice(-5).map(function (h) { return Math.round(h[1]); }).join(', ') : 'none yet';
   }
 
@@ -578,7 +586,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
         readTimer = setInterval(read, 1000);
         $('on').disabled = false; $('off').disabled = false; $('send').disabled = false;
         setPill('Gathering', 'run');
-        $('msg').textContent = 'Rest a fingertip lightly over the lens and the light, and hold still.';
+        $('msg').textContent = 'Easiest: lay the phone on a table, screen down, lens up, and rest a fingertip on the lens and the light without pressing. Keep still.';
         setTorch(true);
       };
       video.addEventListener('playing', go, { once: true });
