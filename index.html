@@ -89,6 +89,14 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
   </div>
 
   <div class="card">
+    <h2>Record a minute for Claude</h2>
+    <p class="muted">Saves the raw camera colors and motion sensor data, so Claude can replay them on the PC and tune the reader without more tests. Rest your finger for about 40 seconds, then pick the phone up and move it for the last 20.</p>
+    <button class="primary" id="rec" type="button" disabled>Record 60 seconds</button>
+    <button id="saveRec" type="button" hidden>Save the recording</button>
+    <p class="muted" id="recNote"></p>
+  </div>
+
+  <div class="card">
     <h2>Check it against your neck</h2>
     <ol>
       <li>With the number steady, keep your fingertip on the lens. With your other hand, count the pulse at your neck for 30 seconds while watching the clock, and double it.</li>
@@ -628,6 +636,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     rgb = [whole[0] / px, whole[1] / px, whole[2] / px]; sat = s / px;
     S[0].push(rgb[0]); S[1].push(rgb[1]); S[2].push(rgb[2]);
     T.push(t);
+    if (rec) { rec.T.push(+t.toFixed(4)); for (var q = 0; q < 30; q++) rec.S[q].push(+S[q][S[q].length - 1].toFixed(2)); }
     // Drop frames older than KEEP seconds.
     var cut = 0;
     while (cut < T.length && T[cut] < t - KEEP) cut++;
@@ -758,6 +767,50 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     $('sHist').textContent = got.length ? got.length + ', last ' + got.slice(-5).map(function (h) { return Math.round(h[1]); }).join(', ') : 'none yet';
   }
 
+  // ---- Recording a minute of raw data ----
+  // Camera: frame times (s, camera clock) and the 30 color series. Motion: [s since recording start (page clock),
+  // ax, ay, az, gx, gy, gz, shake, turn]. The two clocks differ; the file keeps both start times to line them up.
+  var rec = null, recFile = null, RECORD_SECONDS = 60;
+  function r3(v) { return v === undefined || v === null ? null : +v.toFixed(3); }
+  function startRec() {
+    rec = { T: [], S: [], M: [], wall0: performance.now() / 1000, cam0: lastT, per: [], startedAt: new Date().toISOString() };
+    for (var q = 0; q < 30; q++) rec.S.push([]);
+    $('rec').disabled = true; $('saveRec').hidden = true;
+    var left = RECORD_SECONDS;
+    var tick = setInterval(function () {
+      left--;
+      if (rec) rec.per.push(hist[hist.length - 1]);
+      $('rec').textContent = left > 0 ? 'Recording, ' + left + ' s left' : 'Record 60 seconds';
+      $('recNote').textContent = left > 20 ? 'Keep your finger resting still.' : left > 0 ? 'Now pick the phone up and move it around.' : '';
+      if (left <= 0) { clearInterval(tick); finishRec(); }
+    }, 1000);
+  }
+  function finishRec() {
+    var r = rec; rec = null;
+    var data = {
+      what: 'Bad Trip raw recording', version: 1, startedAt: r.startedAt, browser: navigator.userAgent,
+      camera: track ? track.label : '', video: video.videoWidth + 'x' + video.videoHeight, clock: clockSrc, fps: +fpsNow.toFixed(1),
+      motion: motionOn ? 'on' : motionNote, names: NAMES, neck: $('neck').value || null, room: $('room').value,
+      cam0: r.cam0, T: r.T, S: r.S, M: r.M, motionColumns: ['t', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'shake', 'turn'],
+      pageReadings: r.per.filter(Boolean).map(function (h) { return h.join(' '); })
+    };
+    var name = 'badtrip-recording-' + r.startedAt.replace(/[:.]/g, '-').slice(0, 19) + '.json';
+    recFile = new File([JSON.stringify(data)], name, { type: 'application/json' });
+    $('rec').disabled = false; $('saveRec').hidden = false;
+    $('recNote').textContent = 'Done: ' + r.T.length + ' camera frames, ' + r.M.length + ' motion samples, ' + Math.round(recFile.size / 1024) + ' KB. Tap Save, then pick Google Drive (or Save to Files) and tell Claude the file name: ' + name;
+    note('recording finished, ' + r.T.length + ' frames');
+  }
+  function saveRec() {
+    if (!recFile) return;
+    var fallback = function () {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(recFile); a.download = recFile.name;
+      document.body.appendChild(a); a.click(); a.remove();
+    };
+    if (navigator.canShare && navigator.canShare({ files: [recFile] })) {
+      navigator.share({ files: [recFile], title: recFile.name }).catch(function (e) { if (e.name !== 'AbortError') fallback(); });
+    } else fallback();
+  }
+
   // ---- Motion sensors ----
   // iPhone browsers ask once before handing motion data to a page, and only from a tap.
   var M = [], motionOn = false, motionNote = 'not started', tracker = createTracker();
@@ -772,6 +825,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     if (a && a.x !== null) { s.ax = a.x; s.ay = a.y; s.az = a.z; }
     if (g && g.alpha !== null) { s.gx = g.beta; s.gy = g.gamma; s.gz = g.alpha; }
     M.push(s);
+    if (rec) rec.M.push([+(now - rec.wall0).toFixed(4), r3(s.ax), r3(s.ay), r3(s.az), r3(s.gx), r3(s.gy), r3(s.gz), r3(am), r3(gm)]);
     if (!motionOn) { motionOn = true; note('motion data flowing'); }
     while (M.length && M[0].t < now - 15) M.shift();
   }
@@ -834,7 +888,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
         schedule();
         uiTimer = setInterval(renderDiag, 500);
         readTimer = setInterval(read, 1000);
-        $('on').disabled = false; $('off').disabled = false; $('send').disabled = false;
+        $('on').disabled = false; $('off').disabled = false; $('send').disabled = false; $('rec').disabled = false;
         setPill('Gathering', 'run');
         $('msg').textContent = 'Easiest: lay the phone on a table, screen down, lens up, and rest a fingertip on the lens and the light without pressing. Keep still.';
         setTorch(true);
@@ -884,6 +938,8 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
   $('on').addEventListener('click', function () { setTorch(true); });
   $('off').addEventListener('click', function () { setTorch(false); });
   $('send').addEventListener('click', send);
+  $('rec').addEventListener('click', startRec);
+  $('saveRec').addEventListener('click', saveRec);
   drawTrace(null, null);
 })();
 </script>
