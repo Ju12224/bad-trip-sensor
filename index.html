@@ -369,10 +369,25 @@ function liveLevel(r) {
   if (r.q >= LIVE.qWeak && r.c >= LIVE.cUnsure && steady) return 'unsure';
   return 'none';
 }
+// Halves and thirds gaps again, but a stretch that reads exactly half the rate counts as agreeing. On the third
+// live run (November 21) a 4-second third often locked onto every other beat (about 41 against 82), which blanked
+// readings with sharpness 40 to 65. Only the stretch may be at half: a whole reading at half its stretches still fails.
+function octaveGaps(r) {
+  var comb = r.comb, n = comb.length, raw = r.bpm;
+  var off = function (p) { return !p ? 99 : Math.min(Math.abs(p.bpm - raw), Math.abs(2 * p.bpm - raw)); };
+  var hd = Math.max(off(pitch(comb.subarray(0, n >> 1))), off(pitch(comb.subarray(n >> 1))));
+  var third = Math.min(n, Math.max(Math.floor(n / 3), 4 * FS)), td = 0;
+  for (var q3 = 0; q3 < 3; q3++) { var s3 = Math.round(q3 * (n - third) / 2); td = Math.max(td, off(pitch(comb.subarray(s3, s3 + third)))); }
+  return { hd: hd, td: td };
+}
 function liveRead(T, S, names) {
   if (!T.length) return { error: 'short', dur: 0 };
   var w = windowFrom(T, S, T[T.length - 1]);
   var r = analyze(w.T, w.S, names);
+  if (!r.error && r.comb && r.bpm !== undefined) {
+    var g = octaveGaps(r);
+    r.hdSpec = r.hd; r.tdSpec = r.td; r.hd = g.hd; r.td = g.td;
+  }
   if (!r.error) { r.specLevel = r.level; r.level = liveLevel(r); }
   return r;
 }
