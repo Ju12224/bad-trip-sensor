@@ -90,7 +90,13 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
 
   <div class="card">
     <h2>Record a minute for Claude</h2>
-    <p class="muted">Saves the raw camera colors and motion sensor data, so Claude can replay them on the PC and tune the reader without more tests. Rest your finger for about 40 seconds, then pick the phone up and move it for the last 20.</p>
+    <p class="muted">Saves the raw camera colors and motion sensor data, so Claude can replay them on the PC and tune the reader without more tests. Type your neck count above first.</p>
+    <label>During the recording
+      <select id="recMode">
+        <option value="still">Stay still the whole minute</option>
+        <option value="move">Still for 40 s, then move for 20 s</option>
+      </select>
+    </label>
     <button class="primary" id="rec" type="button" disabled>Record 60 seconds</button>
     <button id="saveRec" type="button" hidden>Save the recording</button>
     <p class="muted" id="recNote"></p>
@@ -784,7 +790,8 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       left--;
       if (rec) rec.per.push(hist[hist.length - 1]);
       $('rec').textContent = left > 0 ? 'Recording, ' + left + ' s left' : 'Record 60 seconds';
-      $('recNote').textContent = left > 20 ? 'Keep your finger resting still.' : left > 0 ? 'Now pick the phone up and move it around.' : '';
+      var still = $('recMode').value === 'still';
+      $('recNote').textContent = left <= 0 ? '' : still || left > 20 ? 'Keep still: phone, hand and finger.' : 'Now pick the phone up and move it around.';
       if (left <= 0) { clearInterval(tick); finishRec(); }
     }, 1000);
   }
@@ -793,7 +800,7 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     var data = {
       what: 'Bad Trip raw recording', version: 1, startedAt: r.startedAt, browser: navigator.userAgent,
       camera: track ? track.label : '', video: video.videoWidth + 'x' + video.videoHeight, clock: clockSrc, fps: +fpsNow.toFixed(1),
-      motion: motionOn ? 'on' : motionNote, names: NAMES, neck: $('neck').value || null, room: $('room').value,
+      motion: motionOn ? 'on' : motionNote, mode: $('recMode').value, names: NAMES, neck: $('neck').value || null, room: $('room').value,
       cam0: r.cam0, T: r.T, S: r.S, M: r.M, motionColumns: ['t', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'shake', 'turn'],
       pageReadings: r.per.filter(Boolean).map(function (h) { return h.join(' '); })
     };
