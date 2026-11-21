@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bad Trip: live pulse</title>
+<title>Bad Trip sensor tests</title>
 <style>
 :root {
   --bg: #150b0c; --surface: #211314; --line: #3b2325; --text: #f4e9e4; --muted: #ad968f;
@@ -11,6 +11,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--text);
@@ -60,9 +61,34 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
 <body>
 <main>
   <header>
-    <h1>Live pulse</h1>
-    <p class="muted">Step 1. Reads your pulse through a fingertip over the back lens and the flash, from the last 10 seconds, once a second.</p>
+    <h1>Bad Trip sensor tests</h1>
   </header>
+
+  <div class="card">
+    <label>Which test
+      <select id="test">
+        <option value="pulse">Live pulse</option>
+        <option value="thumb">Thumb test (30 s)</option>
+        <option value="still">Record 1 minute, holding still</option>
+        <option value="move">Record 1 minute, still then moving</option>
+      </select>
+    </label>
+    <p class="muted" id="howto"></p>
+    <label>Neck count, beats per minute (optional, helps Claude check accuracy)
+      <input id="neck" type="number" inputmode="numeric" min="30" max="220" placeholder="count 30 s, double it">
+    </label>
+    <button class="primary" id="start" type="button">Start</button>
+    <div id="pad" hidden style="height:160px;border:2px dashed var(--ember);border-radius:16px;display:flex;align-items:center;justify-content:center;color:var(--muted);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none">Rest your thumb here. Don't press or move.</div>
+    <div data-for="record" class="btns">
+      <button id="rec" type="button" disabled>Record again</button>
+      <button class="primary" id="saveRec" type="button" hidden>Save the recording</button>
+    </div>
+    <p class="muted" id="recNote"></p>
+    <div data-for="pulse" class="btns">
+      <button class="primary" id="send" type="button" disabled>Send results to Claude</button>
+      <input type="hidden" id="room" value="not given">
+    </div>
+  </div>
 
   <div class="card">
     <div class="top">
@@ -74,52 +100,17 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
       <div class="axis"><span id="ax0"></span><span id="axNote">Your pulse trace appears here</span><span id="ax1"></span></div>
     </div>
     <div class="bar" aria-hidden="true"><i id="prog"></i></div>
-    <p class="msg" id="msg" aria-live="polite">Tap Start, allow the camera, then rest a fingertip lightly over the lens and the light.</p>
-    <dl>
-      <dt>Signal strength</dt><dd id="sQ">--</dd>
-      <dt>Beats in the window</dt><dd id="sBeats">--</dd>
-      <dt>Readings so far</dt><dd id="sHist">--</dd>
-      <dt>Phone motion</dt><dd id="sMotion">--</dd>
-      <dt>Pulse felt by motion sensors (experiment)</dt><dd id="sMp">--</dd>
-    </dl>
-  </div>
-
-  <div class="btns">
-    <button class="primary" id="start" type="button">Start</button>
-  </div>
-
-  <div class="card">
-    <h2>Record a minute for Claude</h2>
-    <p class="muted">Saves the raw camera colors and motion sensor data, so Claude can replay them on the PC and tune the reader without more tests. Type your neck count above first.</p>
-    <label>During the recording
-      <select id="recMode">
-        <option value="still">Stay still the whole minute</option>
-        <option value="move">Still for 40 s, then move for 20 s</option>
-      </select>
-    </label>
-    <button class="primary" id="rec" type="button" disabled>Record 60 seconds</button>
-    <button id="saveRec" type="button" hidden>Save the recording</button>
-    <p class="muted" id="recNote"></p>
-  </div>
-
-  <div class="card">
-    <h2>Check it against your neck</h2>
-    <ol>
-      <li>With the number steady, keep your fingertip on the lens. With your other hand, count the pulse at your neck for 30 seconds while watching the clock, and double it.</li>
-      <li>Type that number here, then send the results.</li>
-    </ol>
-    <label>Neck count, beats per minute
-      <input id="neck" type="number" inputmode="numeric" min="30" max="220" placeholder="for example 84">
-    </label>
-    <label>Room light
-      <select id="room">
-        <option value="not given">Pick one</option>
-        <option value="lit room">Lit room</option>
-        <option value="dark room">Dark room</option>
-      </select>
-    </label>
-    <button class="primary" id="send" type="button" disabled>Send results to Claude</button>
-    <p class="muted">Sending opens a GitHub form with the readings filled in. Tap Submit, and they post as a public issue on your bad-trip-sensor repo, where Claude reads them. Pass: the number updates each second, sits within 5 of your neck count, and holds in a dark room.</p>
+    <p class="msg" id="msg" aria-live="polite"></p>
+    <details>
+      <summary>More numbers</summary>
+      <dl>
+        <dt>Signal strength</dt><dd id="sQ">--</dd>
+        <dt>Beats in the window</dt><dd id="sBeats">--</dd>
+        <dt>Readings so far</dt><dd id="sHist">--</dd>
+        <dt>Phone motion</dt><dd id="sMotion">--</dd>
+        <dt>Pulse felt by motion sensors (experiment)</dt><dd id="sMp">--</dd>
+      </dl>
+    </details>
   </div>
 
   <div class="card">
@@ -781,17 +772,30 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
   // ax, ay, az, gx, gy, gz, shake, turn]. The two clocks differ; the file keeps both start times to line them up.
   var rec = null, recFile = null, RECORD_SECONDS = 60;
   function r3(v) { return v === undefined || v === null ? null : +v.toFixed(3); }
+  // Thumb test: every touch event on the pad, [s since recording start, x, y, radiusX, radiusY, force, angle, type].
+  // If the browser reports the touch size finely enough, a heartbeat might show as a tiny rhythmic wobble.
+  function onPadTouch(e) {
+    e.preventDefault();
+    if (!rec || !rec.touch) return;
+    var now = performance.now() / 1000;
+    for (var i = 0; i < e.changedTouches.length; i++) {
+      var t = e.changedTouches[i];
+      rec.touch.push([+(now - rec.wall0).toFixed(4), +t.clientX.toFixed(2), +t.clientY.toFixed(2), r3(t.radiusX), r3(t.radiusY), r3(t.force), r3(t.rotationAngle), e.type[5]]);
+    }
+  }
   function startRec() {
-    rec = { T: [], S: [], M: [], wall0: performance.now() / 1000, cam0: lastT, per: [], startedAt: new Date().toISOString() };
+    var thumb = $('test').value === 'thumb';
+    rec = { T: [], S: [], M: [], touch: thumb ? [] : null, wall0: performance.now() / 1000, cam0: lastT, per: [], startedAt: new Date().toISOString() };
     for (var q = 0; q < 30; q++) rec.S.push([]);
     $('rec').disabled = true; $('saveRec').hidden = true;
-    var left = RECORD_SECONDS;
+    var left = thumb ? 30 : RECORD_SECONDS;
     var tick = setInterval(function () {
       left--;
       if (rec) rec.per.push(hist[hist.length - 1]);
-      $('rec').textContent = left > 0 ? 'Recording, ' + left + ' s left' : 'Record 60 seconds';
-      var still = $('recMode').value === 'still';
-      $('recNote').textContent = left <= 0 ? '' : still || left > 20 ? 'Keep still: phone, hand and finger.' : 'Now pick the phone up and move it around.';
+      $('rec').textContent = left > 0 ? 'Recording, ' + left + ' s left' : 'Record again';
+      var still = $('test').value !== 'move';
+      $('recNote').textContent = left <= 0 ? '' : thumb ? 'Thumb resting on the pad, finger on the back camera. Keep still. ' + (rec && rec.touch ? rec.touch.length + ' touch readings so far.' : '') :
+        still || left > 20 ? 'Keep still: phone, hand and finger.' : 'Now pick the phone up and move it around.';
       if (left <= 0) { clearInterval(tick); finishRec(); }
     }, 1000);
   }
@@ -800,14 +804,14 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     var data = {
       what: 'Bad Trip raw recording', version: 1, startedAt: r.startedAt, browser: navigator.userAgent,
       camera: track ? track.label : '', video: video.videoWidth + 'x' + video.videoHeight, clock: clockSrc, fps: +fpsNow.toFixed(1),
-      motion: motionOn ? 'on' : motionNote, mode: $('recMode').value, names: NAMES, neck: $('neck').value || null, room: $('room').value,
-      cam0: r.cam0, T: r.T, S: r.S, M: r.M, motionColumns: ['t', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'shake', 'turn'],
+      motion: motionOn ? 'on' : motionNote, mode: $('test').value, names: NAMES, neck: $('neck').value || null, room: $('room').value,
+      cam0: r.cam0, T: r.T, S: r.S, M: r.M, touch: r.touch, touchColumns: ['t', 'x', 'y', 'radiusX', 'radiusY', 'force', 'angle', 'type (s start, m move, e end, c cancel)'], motionColumns: ['t', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'shake', 'turn'],
       pageReadings: r.per.filter(Boolean).map(function (h) { return h.join(' '); })
     };
     var name = 'badtrip-recording-' + r.startedAt.replace(/[:.]/g, '-').slice(0, 19) + '.json';
     recFile = new File([JSON.stringify(data)], name, { type: 'application/json' });
     $('rec').disabled = false; $('saveRec').hidden = false;
-    $('recNote').textContent = 'Done: ' + r.T.length + ' camera frames, ' + r.M.length + ' motion samples, ' + Math.round(recFile.size / 1024) + ' KB. Tap Save, then pick Google Drive (or Save to Files) and tell Claude the file name: ' + name;
+    $('recNote').textContent = 'Done: ' + r.T.length + ' camera frames, ' + r.M.length + ' motion samples' + (r.touch ? ', ' + r.touch.length + ' touch readings' : '') + ', ' + Math.round(recFile.size / 1024) + ' KB. Tap Save, then get the file to your PC the same way as before and tell Claude: ' + name;
     note('recording finished, ' + r.T.length + ' frames');
   }
   function saveRec() {
@@ -900,8 +904,13 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
         readTimer = setInterval(read, 1000);
         $('on').disabled = false; $('off').disabled = false; $('send').disabled = false; $('rec').disabled = false;
         setPill('Gathering', 'run');
-        $('msg').textContent = 'Easiest: lay the phone on a table, screen down, lens up, and rest a fingertip on the lens and the light without pressing. Keep still.';
+        $('msg').textContent = 'Rest a fingertip on the back lens and the light without pressing. Keep still.';
         setTorch(true);
+        // Recording tests start by themselves once the camera is running.
+        if ($('test').value !== 'pulse') {
+          $('recNote').textContent = 'Recording starts in 3 seconds. Get in position.';
+          setTimeout(function () { if (!rec) startRec(); }, 3000);
+        }
       };
       video.addEventListener('playing', go, { once: true });
       var p = video.play();
@@ -949,6 +958,21 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
   $('off').addEventListener('click', function () { setTorch(false); });
   $('send').addEventListener('click', send);
   $('rec').addEventListener('click', startRec);
+  ['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(function (ev) { $('pad').addEventListener(ev, onPadTouch, { passive: false }); });
+  // One test picker: show only what the chosen test needs.
+  var HOWTO = {
+    pulse: 'Tap Start, allow camera and motion, then rest a fingertip lightly on the back lens and light. A number shows after about 10 seconds.',
+    thumb: 'Tap Start, then hold the phone normally: index finger on the back lens, thumb resting on the dashed pad. Recording starts by itself and lasts 30 seconds. Then tap Save.',
+    still: 'Tap Start, rest a fingertip on the back lens and keep everything still. Recording starts by itself and lasts 1 minute. Then tap Save.',
+    move: 'Tap Start, rest a fingertip on the back lens. Recording starts by itself: still for 40 seconds, then move the phone for 20. Then tap Save.'
+  };
+  function applyTest() {
+    var v = $('test').value;
+    $('howto').textContent = HOWTO[v];
+    $('pad').hidden = v !== 'thumb';
+    document.querySelectorAll('[data-for]').forEach(function (el) { el.hidden = el.getAttribute('data-for') === 'pulse' ? v !== 'pulse' : v === 'pulse'; });
+  }
+  $('test').addEventListener('change', applyTest); applyTest();
   $('saveRec').addEventListener('click', saveRec);
   drawTrace(null, null);
 })();
