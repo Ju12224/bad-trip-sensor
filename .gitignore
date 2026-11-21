@@ -1,2 +1,6 @@
 bench/data/
 bench/*.json
+ios/build/
+ios/BadTrip.xcodeproj/
+ios/Payload/
+ios/*.ipa

@@ -1,0 +1,60 @@
+# Builds the iPhone app on GitHub's free Mac machines (free and unlimited for public repos), without code signing.
+# Sideloadly signs it with a free Apple ID at install time. Each build is posted as a GitHub release with BadTrip.ipa.
+name: iOS app
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project BadTrip.xcodeproj -scheme BadTrip -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 80
+
+      - name: Package BadTrip.ipa
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/BadTrip.app Payload/
+          zip -qry BadTrip.ipa Payload
+          ls -la BadTrip.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BadTrip-ipa
+          path: ios/BadTrip.ipa
+
+      - name: Publish as a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-build-${{ github.run_number }}
+          name: Bad Trip iPhone app, build ${{ github.run_number }}
+          body: Unsigned build. Install with Sideloadly using a free Apple ID; reinstall every 7 days.
+          files: ios/BadTrip.ipa
+          prerelease: true

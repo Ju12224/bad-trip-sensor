@@ -85,6 +85,13 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
       <input id="neck" type="number" inputmode="numeric" min="30" max="220" placeholder="count 30 s, double it">
     </label>
     <button class="primary" id="start" type="button">Start</button>
+    <div id="nativeBox" hidden>
+      <p class="muted">Running in the Bad Trip app: vibration is available.</p>
+      <div class="row">
+        <button id="buzz" type="button">Buzz test</button>
+        <button id="beatBuzz" type="button">Heartbeat buzz: off</button>
+      </div>
+    </div>
     <div id="pad" hidden style="height:160px;border:2px dashed var(--ember);border-radius:16px;display:flex;align-items:center;justify-content:center;color:var(--muted);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none">Rest your thumb here. Don't press or move.</div>
     <div data-for="record" class="btns">
       <button id="rec" type="button" disabled>Record again</button>
@@ -777,7 +784,32 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
   // ---- Recording a minute of raw data ----
   // Camera: frame times (s, camera clock) and the 30 color series. Motion: [s since recording start (page clock),
   // ax, ay, az, gx, gy, gz, shake, turn]. The two clocks differ; the file keeps both start times to line them up.
-  var rec = null, recFile = null, RECORD_SECONDS = 60;
+  var rec = null, recFile = null, recText = '', RECORD_SECONDS = 60;
+
+  // ---- Inside the Bad Trip app (Route B): native vibration ----
+  // The app injects window.badTripNative before the page loads; in a plain browser it is absent.
+  var NATIVE = !!(window.badTripNative && window.badTripNative.available);
+  var beatBuzzOn = false, beatTimer = null;
+  // Buzz a heartbeat at the tracked rate. Off by default: the buzz shakes the finger on the lens and might
+  // leak into the pulse reading at exactly the heart rate, which recordings with it on will show.
+  function beatLoop() {
+    beatTimer = null;
+    if (!beatBuzzOn) return;
+    var now = (performance.now() - startedAt) / 1000;
+    var rate = tracker && tracker.rate && now - tracker.lastAt <= TRACK.hold ? tracker.rate : null;
+    if (rate) window.badTripNative.haptic('beat', 0.8);
+    beatTimer = setTimeout(beatLoop, rate ? 60000 / rate : 500);
+  }
+  if (NATIVE) {
+    $('nativeBox').hidden = false;
+    $('buzz').addEventListener('click', function () { window.badTripNative.haptic('tap', 1); });
+    $('beatBuzz').addEventListener('click', function () {
+      beatBuzzOn = !beatBuzzOn;
+      $('beatBuzz').textContent = 'Heartbeat buzz: ' + (beatBuzzOn ? 'on' : 'off');
+      note('heartbeat buzz ' + (beatBuzzOn ? 'on' : 'off'));
+      if (beatBuzzOn && !beatTimer) beatLoop();
+    });
+  }
   function r3(v) { return v === undefined || v === null ? null : +v.toFixed(3); }
   // Thumb test: every touch event on the pad, [s since recording start, x, y, radiusX, radiusY, force, angle, type].
   // If the browser reports the touch size finely enough, a heartbeat might show as a tiny rhythmic wobble.
@@ -811,18 +843,20 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     var data = {
       what: 'Bad Trip raw recording', version: 1, startedAt: r.startedAt, browser: navigator.userAgent,
       camera: track ? track.label : '', video: video.videoWidth + 'x' + video.videoHeight, clock: clockSrc, fps: +fpsNow.toFixed(1),
-      motion: motionOn ? 'on' : motionNote, mode: $('test').value, names: NAMES, neck: $('neck').value || null, room: $('room').value,
+      motion: motionOn ? 'on' : motionNote, mode: $('test').value, app: NATIVE, heartbeatBuzz: beatBuzzOn, names: NAMES, neck: $('neck').value || null, room: $('room').value,
       cam0: r.cam0, T: r.T, S: r.S, M: r.M, touch: r.touch, touchColumns: ['t', 'x', 'y', 'radiusX', 'radiusY', 'force', 'angle', 'type (s start, m move, e end, c cancel)'], motionColumns: ['t', 'ax', 'ay', 'az', 'gx', 'gy', 'gz', 'shake', 'turn'],
       pageReadings: r.per.filter(Boolean).map(function (h) { return h.join(' '); })
     };
     var name = 'badtrip-recording-' + r.startedAt.replace(/[:.]/g, '-').slice(0, 19) + '.json';
-    recFile = new File([JSON.stringify(data)], name, { type: 'application/json' });
+    recText = JSON.stringify(data);
+    recFile = new File([recText], name, { type: 'application/json' });
     $('rec').disabled = false; $('saveRec').hidden = false;
     $('recNote').textContent = 'Done: ' + r.T.length + ' camera frames, ' + r.M.length + ' motion samples' + (r.touch ? ', ' + r.touch.length + ' touch readings' : '') + ', ' + Math.round(recFile.size / 1024) + ' KB. Tap Save, then get the file to your PC the same way as before and tell Claude: ' + name;
     note('recording finished, ' + r.T.length + ' frames');
   }
   function saveRec() {
     if (!recFile) return;
+    if (NATIVE && window.badTripNative.share) { window.badTripNative.share(recFile.name, recText); return; }
     var fallback = function () {
       var a = document.createElement('a'); a.href = URL.createObjectURL(recFile); a.download = recFile.name;
       document.body.appendChild(a); a.click(); a.remove();
