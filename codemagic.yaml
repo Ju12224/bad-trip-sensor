@@ -1,0 +1,47 @@
+# Codemagic builds the iPhone app on a cloud Mac (500 free minutes a month on a personal account), unsigned.
+# Sideloadly signs it with a free Apple ID at install time. Download BadTrip.ipa from the build's Artifacts.
+workflows:
+  ios-unsigned:
+    name: Bad Trip iPhone app (unsigned)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+      cancel_previous_builds: true
+    when:
+      changeset:
+        includes:
+          - 'ios/**'
+          - 'codemagic.yaml'
+    scripts:
+      - name: Show Xcode
+        script: xcodebuild -version
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Generate the Xcode project
+        script: |
+          cd ios
+          xcodegen generate
+      - name: Build (unsigned)
+        script: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project BadTrip.xcodeproj -scheme BadTrip -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 80
+      - name: Package BadTrip.ipa
+        script: |
+          cd ios
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/BadTrip.app Payload/
+          zip -qry BadTrip.ipa Payload
+          ls -la BadTrip.ipa
+    artifacts:
+      - ios/BadTrip.ipa

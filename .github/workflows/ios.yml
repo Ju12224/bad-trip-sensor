@@ -2,10 +2,9 @@
 # Sideloadly signs it with a free Apple ID at install time. Each build is posted as a GitHub release with BadTrip.ipa.
 name: iOS app
 
+# Manual only for now: GitHub Actions is locked on this account by a billing flag, so builds run on Codemagic
+# (codemagic.yaml). Switch back to push triggers once GitHub unlocks it.
 on:
-  push:
-    branches: [main]
-    paths: ['ios/**', '.github/workflows/ios.yml']
   workflow_dispatch:
 
 permissions:
