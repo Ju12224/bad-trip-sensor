@@ -80,6 +80,7 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 
       <dt>Beats in the window</dt><dd id="sBeats">--</dd>
       <dt>Readings so far</dt><dd id="sHist">--</dd>
       <dt>Phone motion</dt><dd id="sMotion">--</dd>
+      <dt>Pulse felt by motion sensors (experiment)</dt><dd id="sMp">--</dd>
     </dl>
   </div>
 
@@ -471,9 +472,44 @@ function motionSummary(M, now) {
     for (i = 0; i < x.length; i++) mu += x[i] / x.length;
     for (i = 0; i < x.length; i++) x[i] -= mu;
     var p = pitch(x);
-    if (p) { out.rhythm = p.bpm; out.rhythmShare = p.q; }
+    // A flat series can make the peak refinement divide by almost zero (seen live: -753, -5981). Keep 35 to 200.
+    if (p && p.bpm >= 35 && p.bpm <= 200) { out.rhythm = p.bpm; out.rhythmShare = p.q; }
   }
+  if (M.length > 10) out.hz = (M.length - 1) / (M[M.length - 1].t - M[0].t);
   return out;
+}
+
+// ---- Pulse from the motion sensors (experiment, Judah's idea) ----
+// Each heartbeat jolts the body very slightly, and a phone held still can feel it (ballistocardiography; the
+// HandRate study read heart rate from a hand-held phone's accelerometer). Each of the six axes (acceleration x, y,
+// z and rotation x, y, z) is cleaned the same way as the camera series and the clearest rhythm wins. Only shown
+// and logged next to the camera reading for now; nothing depends on it.
+var MOTION_AXES = ['ax', 'ay', 'az', 'gx', 'gy', 'gz'];
+function motionPulse(M, now) {
+  var T = [], i, j;
+  for (i = 0; i < M.length; i++) if (M[i].t >= now - 10) T.push(i);
+  if (T.length < 100) return null;
+  var t0 = M[T[0]].t, t1 = M[T[T.length - 1]].t;
+  if (t1 - t0 < 8) return null;
+  var times = T.map(function (k) { return M[k].t; }), best = null;
+  // No outlier blanking here (unlike the camera's detrend): a heartbeat in motion data is itself a sharp jolt.
+  var highpass = function (x, sec) { var s = movAvg(x, Math.round(sec * FS) | 1), o = new Float64Array(x.length); for (var q = 0; q < x.length; q++) o[q] = x[q] - s[q]; return o; };
+  var consider = function (d, label) {
+    if (std(d) === 0) return;
+    var p = pitch(d);
+    if (p && p.bpm >= 40 && p.bpm <= 200 && (!best || p.q > best.q)) best = { bpm: p.bpm, q: p.q, c: p.c, axis: label };
+  };
+  for (j = 0; j < MOTION_AXES.length; j++) {
+    var key = MOTION_AXES[j];
+    if (M[T[0]][key] === undefined) continue;
+    var x = resample(times, T.map(function (k) { return M[k][key]; }), t0, t1);
+    consider(highpass(x, 1.5), key);
+    // Energy envelope: keep the fast jolts, square them, smooth, and look for their repeat rate.
+    var fast = highpass(x, 0.25), env = new Float64Array(fast.length);
+    for (i = 0; i < fast.length; i++) env[i] = fast[i] * fast[i];
+    consider(highpass(movAvg(env, 5), 1.5), key + ' jolts');
+  }
+  return best;
 }
 
 // ---- Second-to-second tracking (new) ----
@@ -539,7 +575,7 @@ function trackStep(tk, r, m, now) {
 }
 
 if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead: liveRead, FS: FS, WIN: WIN, LIVE: LIVE,
-  createTracker: createTracker, trackStep: trackStep, motionSummary: motionSummary, MOTION: MOTION, TRACK: TRACK };
+  createTracker: createTracker, trackStep: trackStep, motionSummary: motionSummary, MOTION: MOTION, TRACK: TRACK, motionPulse: motionPulse };
 </script>
 
 <script>
@@ -665,13 +701,15 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     var r = liveRead(T, S, NAMES), secs = Math.round(now);
     var m = motionOn ? motionSummary(M, performance.now() / 1000) : null;
     var t = trackStep(tracker, r, m, now);
+    var mp = m && !m.moving ? motionPulse(M, performance.now() / 1000) : null;
     var bpmEl = $('bpm'), notRed = !(rgb[0] > 1.4 * rgb[1] && rgb[0] > 1.4 * rgb[2]);
     var f1 = function (v) { return v === undefined || v === null || !isFinite(v) || v > 90 ? '-' : (+v).toFixed(1); };
     hist.push([secs, t.bpm === null ? null : +t.bpm.toFixed(1), t.state,
       [r.bpm !== undefined ? r.bpm.toFixed(1) : '-', r.q !== undefined ? r.q.toFixed(2) : '-', r.c ? r.c.toFixed(1) : '-',
         f1(r.hd), f1(r.td), r.level || '-', fpsNow.toFixed(0),
         m ? m.a.toFixed(2) : '-', m ? m.g.toFixed(0) : '-', m && m.rhythm ? Math.round(m.rhythm) + '/' + m.rhythmShare.toFixed(2) : '-',
-        (t.why || '-').replace(/ /g, '_')].join(' ')]);
+        (t.why || '-').replace(/ /g, '_'),
+        mp ? 'mp ' + mp.bpm.toFixed(0) + '/' + mp.q.toFixed(2) + '/' + mp.c.toFixed(0) + '/' + mp.axis : 'mp -'].join(' ')]);
     if (hist.length > 600) hist.shift();
 
     if (SHOWN[t.state]) {
@@ -703,6 +741,8 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
     $('sQ').textContent = r.q !== undefined ? quality(r) : '--';
     $('sMotion').textContent = !motionOn ? motionNote : !m || !m.have ? 'no data yet' :
       (m.moving ? 'moving' : 'still') + ' (shake ' + m.a.toFixed(2) + ' m/s², turn ' + m.g.toFixed(0) + '°/s' + (m.rhythm ? ', rhythm ' + Math.round(m.rhythm) + '/min' : '') + ')';
+    $('sMp').textContent = !motionOn ? '--' : m && m.moving ? 'paused while moving' : !mp ? 'gathering' :
+      (mp.q < 0.55 ? 'noise level, ' : '') + Math.round(mp.bpm) + ' bpm, strength ' + Math.round(mp.q * 100) + '%, sharpness ' + mp.c.toFixed(0) + ' (' + mp.axis + ')' + (m && m.hz ? ', sensor ' + Math.round(m.hz) + ' per second' : '');
     if (r.signal && r.beats) {
       $('sBeats').textContent = String(r.beats.length) + ' in ' + (r.span[1] - r.span[0]).toFixed(1) + ' s';
       drawTrace(r.signal, r.beats);
@@ -728,7 +768,10 @@ if (typeof module !== 'undefined') module.exports = { analyze: analyze, liveRead
       var ag = e.accelerationIncludingGravity; am = Math.abs(Math.sqrt(ag.x * ag.x + ag.y * ag.y + ag.z * ag.z) - 9.81);
     } else return;
     var gm = g && g.alpha !== null ? Math.sqrt(g.alpha * g.alpha + g.beta * g.beta + g.gamma * g.gamma) : 0;
-    M.push({ t: now, a: am, g: gm });
+    var s = { t: now, a: am, g: gm };
+    if (a && a.x !== null) { s.ax = a.x; s.ay = a.y; s.az = a.z; }
+    if (g && g.alpha !== null) { s.gx = g.beta; s.gy = g.gamma; s.gz = g.alpha; }
+    M.push(s);
     if (!motionOn) { motionOn = true; note('motion data flowing'); }
     while (M.length && M[0].t < now - 15) M.shift();
   }
