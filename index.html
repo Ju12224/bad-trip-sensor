@@ -87,7 +87,15 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
       <button id="on" type="button" disabled>Flash on</button>
       <button id="off" type="button" disabled>Flash off</button>
     </div>
+    <button class="primary" id="send" type="button" disabled>Send results to Claude</button>
     <button id="copy" type="button" disabled>Copy results</button>
+    <label class="muted" for="saw">Did the light on the back come on?</label>
+    <select id="saw" style="font:inherit;padding:12px;border-radius:12px;background:var(--surface);color:var(--text);border:1px solid var(--line)">
+      <option value="not answered">Pick one</option>
+      <option value="yes">Yes, the light came on</option>
+      <option value="no">No, the light stayed off</option>
+      <option value="flickered">It flickered or went off again</option>
+    </select>
   </div>
 
   <div class="card">
@@ -95,7 +103,7 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
       <li>Tap Start and allow the camera.</li>
       <li>Turn the phone over. Is the light next to the back lenses lit?</li>
       <li>Rest a fingertip lightly over the lens and the light. Red should climb well above 150 while green and blue fall near 0.</li>
-      <li>Tap Copy results and paste them to Claude, with whether you saw the light.</li>
+      <li>Pick whether you saw the light, then tap Send results to Claude. GitHub opens a form with the results filled in: tap Submit. The results post as a public issue on your bad-trip-sensor repo, where Claude reads them.</li>
     </ol>
     <p class="muted">Pass: the light is lit and the picture is solid red under your fingertip. Your eyes and the red level decide it. The two "flash" lines above are only what Safari claims.</p>
   </div>
@@ -186,6 +194,7 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
     var s = settingsOf() || {}, c = capsOf();
     return [
       'Bad Trip flash test, Step 0',
+      'light seen on the back: ' + $('saw').value,
       'time: ' + new Date().toISOString(),
       'browser: ' + navigator.userAgent,
       'camera: ' + (track ? track.label : 'none') + (track ? ', state ' + track.readyState + (log.muted ? ', paused' : '') : ''),
@@ -231,7 +240,7 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
         running = true; fpsStart = performance.now(); frames = 0;
         schedule();
         setInterval(render, 250);
-        $('on').disabled = false; $('off').disabled = false; $('copy').disabled = false;
+        $('on').disabled = false; $('off').disabled = false; $('copy').disabled = false; $('send').disabled = false;
         setTorch(true);
       };
       video.addEventListener('playing', go, { once: true });
@@ -256,6 +265,15 @@ ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 
   $('on').addEventListener('click', function () { setTorch(true); });
   $('off').addEventListener('click', function () { setTorch(false); });
   $('copy').addEventListener('click', copy);
+
+  // Opens a prefilled issue on this repo. Nothing is sent until Judah taps Submit on GitHub.
+  function send() {
+    var saw = $('saw').value;
+    var title = 'Flash test: light ' + (saw === 'not answered' ? 'not answered' : saw) + ', red ' + rgb[0].toFixed(0);
+    var body = '```\n' + report() + '\n```';
+    window.open('https://github.com/Ju12224/bad-trip-sensor/issues/new?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body), '_blank');
+  }
+  $('send').addEventListener('click', send);
 })();
 </script>
 </body>
